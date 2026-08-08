@@ -22,7 +22,10 @@
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QColor
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -32,7 +35,6 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QFont, QIcon
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
@@ -40,9 +42,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
-    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -91,7 +91,7 @@ class DrawerMainPanel(QWidget):
         self._outer.setObjectName("DrawerOuter")
         self._outer.setGeometry(0, 0, PANEL_W, PANEL_H)
         self._outer.setStyleSheet(
-            "QWidget#DrawerOuter{background:white;border:1px solid #E2E8F0;border-radius:14px;}"
+            "QWidget#DrawerOuter{background:white;border:1px solid #DCE7D6;border-radius:14px;}"
         )
         shadow = QGraphicsDropShadowEffect(self._outer)
         shadow.setBlurRadius(24)
@@ -111,12 +111,12 @@ class DrawerMainPanel(QWidget):
         # --- 中部 Tab ---
         self.tabs = QTabWidget(self._outer)
         self.tabs.setStyleSheet(
-            "QTabWidget::pane{border:none;border-top:1px solid #E2E8F0;}"
+            "QTabWidget::pane{border:none;border-top:1px solid #E2ECDE;}"
             "QTabBar::tab{"
-            "background:transparent;color:#334155;font-size:13px;padding:8px 16px;"
+            "background:transparent;color:#52614F;font-size:13px;padding:8px 16px;"
             "border:none;border-bottom:2px solid transparent;}"
-            "QTabBar::tab:selected{color:#3B82F6;border-bottom-color:#3B82F6;font-weight:600;}"
-            "QTabBar::tab:hover{color:#0F172A;}"
+            "QTabBar::tab:selected{color:#4D9269;border-bottom-color:#5FA87C;font-weight:600;}"
+            "QTabBar::tab:hover{color:#24352A;}"
         )
         # 三个 Tab 页
         self._chat_tab = self._build_chat_tab()
@@ -143,7 +143,12 @@ class DrawerMainPanel(QWidget):
 
     def _build_topbar(self) -> QWidget:
         bar = QFrame(self._outer)
-        bar.setStyleSheet("QFrame{background:transparent;}")
+        bar.setStyleSheet(
+            "QFrame{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            "stop:0 #EFF7EB,stop:1 #FFFFFF);"
+            "border-bottom:1px solid #E2ECDE;"
+            "border-top-left-radius:14px;border-top-right-radius:14px;}"
+        )
         bar.setFixedHeight(52)
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(16, 0, 10, 0)
@@ -151,7 +156,8 @@ class DrawerMainPanel(QWidget):
 
         title = QLabel("🎙️ 桌面语音助手", bar)
         title.setStyleSheet(
-            "color:#0F172A;font-size:15px;font-weight:700;letter-spacing:0.2px;"
+            "color:#24352A;font-size:15px;font-weight:700;letter-spacing:0.2px;"
+            "background:transparent;border:none;"
         )
         lay.addWidget(title, 1)
 
@@ -169,7 +175,7 @@ class DrawerMainPanel(QWidget):
         btn_close = self._icon_btn("✕", "关闭面板")
         btn_close.setStyleSheet(
             "QPushButton{border:none;background:transparent;border-radius:10px;"
-            "font-size:14px;color:#64748B;padding:6px 8px;}"
+            "font-size:14px;color:#6E7F6A;padding:6px 8px;}"
             "QPushButton:hover{background:#FEE2E2;color:#DC2626;}"
         )
         btn_close.clicked.connect(self.hide_panel)
@@ -182,7 +188,7 @@ class DrawerMainPanel(QWidget):
         lay.setContentsMargins(4, 0, 4, 4)
         lay.setSpacing(0)
         # 顶部分隔，避免欢迎气泡与 Tab 栏/顶栏重叠被截断
-        from PySide6.QtWidgets import QSpacerItem, QSizePolicy
+        from PySide6.QtWidgets import QSpacerItem
         lay.addSpacerItem(QSpacerItem(0, 10, QSizePolicy.Minimum, QSizePolicy.Fixed))
         self.chat_bubbles = BubbleListWidget(wrap)
         lay.addWidget(self.chat_bubbles, 1)
@@ -197,8 +203,8 @@ class DrawerMainPanel(QWidget):
         tip = QLabel("📜 历史会话\n\nM5-5 将接入此 Tab：按日期分组、可回看、可清空、可继续上轮对话。", wrap)
         tip.setAlignment(Qt.AlignCenter)
         tip.setStyleSheet(
-            "color:#64748B;font-size:13px;padding:24px;background:#F8FAFC;border-radius:12px;"
-            "border:1px dashed #CBD5E1;line-height:1.8;"
+            "color:#6E7F6A;font-size:13px;padding:24px;background:#F5F9F3;border-radius:12px;"
+            "border:1px dashed #B9D4BE;line-height:1.8;"
         )
         tip.setWordWrap(True)
         lay.addStretch(1)
@@ -219,8 +225,8 @@ class DrawerMainPanel(QWidget):
         )
         tip.setAlignment(Qt.AlignCenter)
         tip.setStyleSheet(
-            "color:#64748B;font-size:13px;padding:24px;background:#F8FAFC;border-radius:12px;"
-            "border:1px dashed #818CF8;line-height:1.8;"
+            "color:#6E7F6A;font-size:13px;padding:24px;background:#F5F9F3;border-radius:12px;"
+            "border:1px dashed #A8C4A2;line-height:1.8;"
         )
         tip.setWordWrap(True)
         lay.addStretch(1)
@@ -232,7 +238,7 @@ class DrawerMainPanel(QWidget):
     def _build_input_bar(self) -> QWidget:
         bar = QFrame(self._outer)
         bar.setStyleSheet(
-            "QFrame{background:#FAFBFC;border-top:1px solid #E2E8F0;border-bottom-left-radius:14px;"
+            "QFrame{background:#F7FAF4;border-top:1px solid #E2ECDE;border-bottom-left-radius:14px;"
             "border-bottom-right-radius:14px;}"
         )
         bar.setFixedHeight(72)
@@ -245,10 +251,10 @@ class DrawerMainPanel(QWidget):
         self.btn_voice.setFixedSize(42, 42)
         self.btn_voice.setCursor(Qt.PointingHandCursor)
         self.btn_voice.setStyleSheet(
-            "QPushButton{background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;"
+            "QPushButton{background:#EAF4EC;color:#3F7D58;border:1px solid #C6E2CC;"
             "border-radius:21px;font-size:16px;}"
-            "QPushButton:hover{background:#DBEAFE;}"
-            "QPushButton:pressed{background:#2563EB;color:white;border-color:#2563EB;}"
+            "QPushButton:hover{background:#DCEEDF;}"
+            "QPushButton:pressed{background:#4D9269;color:white;border-color:#4D9269;}"
         )
         self.btn_voice.setToolTip("按住说话，松开发送；短按切换录音状态。")
         self.btn_voice.pressed.connect(self.user_voice_start.emit)
@@ -259,9 +265,9 @@ class DrawerMainPanel(QWidget):
         self.input_edit = QLineEdit(bar)
         self.input_edit.setPlaceholderText("说点什么…（Enter 发送，Shift+Enter 换行）")
         self.input_edit.setStyleSheet(
-            "QLineEdit{background:white;border:1px solid #E2E8F0;border-radius:20px;padding:9px 14px;"
-            "font-size:13px;color:#0F172A;selection-background-color:#BFDBFE;}"
-            "QLineEdit:focus{border-color:#3B82F6;}"
+            "QLineEdit{background:white;border:1px solid #E2ECDE;border-radius:20px;padding:9px 14px;"
+            "font-size:13px;color:#24352A;selection-background-color:#CDE7D3;}"
+            "QLineEdit:focus{border-color:#5FA87C;}"
         )
         self.input_edit.setMinimumHeight(40)
         self.input_edit.returnPressed.connect(self._on_send_clicked)
@@ -280,7 +286,7 @@ class DrawerMainPanel(QWidget):
         tts_lay.addLayout(tts_center)
         tts_label = QLabel("🔊 TTS", tts_wrap)
         tts_label.setAlignment(Qt.AlignHCenter)
-        tts_label.setStyleSheet("color:#64748B;font-size:10px;")
+        tts_label.setStyleSheet("color:#6E7F6A;font-size:10px;")
         tts_lay.addWidget(tts_label)
         self.tts_switch.toggled.connect(self.user_tts_toggled.emit)
         lay.addWidget(tts_wrap)
@@ -290,10 +296,10 @@ class DrawerMainPanel(QWidget):
         self.btn_send.setFixedSize(42, 42)
         self.btn_send.setCursor(Qt.PointingHandCursor)
         self.btn_send.setStyleSheet(
-            "QPushButton{background:#3B82F6;color:white;border-radius:21px;font-size:16px;border:none;}"
-            "QPushButton:hover{background:#2563EB;}"
-            "QPushButton:pressed{background:#1D4ED8;}"
-            "QPushButton:disabled{background:#CBD5E1;color:#F1F5F9;}"
+            "QPushButton{background:#5FA87C;color:white;border-radius:21px;font-size:16px;border:none;}"
+            "QPushButton:hover{background:#4D9269;}"
+            "QPushButton:pressed{background:#3F7D58;}"
+            "QPushButton:disabled{background:#D7E2D3;color:#F4F8F2;}"
         )
         self.btn_send.clicked.connect(self._on_send_clicked)
         lay.addWidget(self.btn_send)
@@ -306,9 +312,9 @@ class DrawerMainPanel(QWidget):
         btn.setFixedSize(32, 32)
         btn.setStyleSheet(
             "QPushButton{border:none;background:transparent;border-radius:10px;"
-            "font-size:14px;color:#475569;padding:4px;}"
-            "QPushButton:hover{background:#F1F5F9;color:#0F172A;}"
-            "QPushButton:pressed{background:#E2E8F0;}"
+            "font-size:14px;color:#52614F;padding:4px;}"
+            "QPushButton:hover{background:#EDF4E9;color:#24352A;}"
+            "QPushButton:pressed{background:#DEEAD9;}"
         )
         return btn
 

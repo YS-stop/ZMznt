@@ -25,7 +25,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, QMetaObject, Q_ARG, Q_RETURN_ARG, Slot, QTimer
+from PySide6.QtCore import QObject, QThread, Signal, Slot, QTimer
 
 import sys
 from pathlib import Path
@@ -76,7 +76,7 @@ class _AgentWorker(QObject):
             # 调用 AgentService：单轮推理（内部用 LangGraph + 8 Tools + Checkpoint）
             from src.services.agent_service import get_assistant_agent  # 延迟导入避免循环
             agent = get_assistant_agent()
-            self.stage.emit("AGENT", f"构建 LangGraph ReAct…")
+            self.stage.emit("AGENT", "构建 LangGraph ReAct…")
 
             def _on_stream(stage_name: str, data: Any) -> None:
                 """stream_events 的流式回调（本 worker 线程内执行，经 Qt 信号跨线程投递到 UI）。

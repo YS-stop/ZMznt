@@ -40,7 +40,7 @@ def _preload_asr_native_deps() -> None:
 _preload_asr_native_deps()
 
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,

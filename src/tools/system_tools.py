@@ -10,7 +10,6 @@
 """
 from __future__ import annotations
 
-import os
 import sys
 import time
 import uuid
@@ -294,7 +293,6 @@ class SystemPowerTool(BaseTool):
             return f"❌ system_power 未知 action='{a}'，可选 lock|sleep|restart|shutdown|abort。"
 
         switch = "/r" if a == "restart" else "/s"
-        force_flag = "/f" if force else "/t 30"
         try:
             import subprocess
             cmd = ["shutdown.exe", switch, "/t", "30"] if not force else ["shutdown.exe", switch, "/f"]

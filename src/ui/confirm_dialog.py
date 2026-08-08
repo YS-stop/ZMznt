@@ -8,23 +8,19 @@
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication,
     QDialog,
     QDialogButtonBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -95,16 +91,16 @@ class HighRiskConfirmDialog(QDialog):
 
         # --- 操作清单 ---
         list_lbl = QLabel(f"📋 待执行操作清单（共 {len(self._ops_list)} 项）：", self)
-        list_lbl.setStyleSheet("color:#1E293B;font-size:13px;font-weight:600;")
+        list_lbl.setStyleSheet("color:#24352A;font-size:13px;font-weight:600;")
         root.addWidget(list_lbl)
 
         self.list_widget = QListWidget(self)
         self.list_widget.setStyleSheet(
-            "QListWidget{background:#FAFAFA;border:1px solid #E2E8F0;border-radius:8px;padding:4px;}"
-            "QListWidget::item{color:#334155;font-size:12px;padding:3px 6px;border-bottom:1px solid #F1F5F9;}"
-            "QListWidget::item:selected{background:#DBEAFE;color:#1E3A8A;}"
+            "QListWidget{background:#FAFCF8;border:1px solid #E2ECDE;border-radius:8px;padding:4px;}"
+            "QListWidget::item{color:#4A5D46;font-size:12px;padding:3px 6px;border-bottom:1px solid #F0F6EC;}"
+            "QListWidget::item:selected{background:#DEEDDF;color:#2E5238;}"
             "QScrollBar:vertical{width:6px;}"
-            "QScrollBar::handle:vertical{background:#CBD5E1;border-radius:3px;}"
+            "QScrollBar::handle:vertical{background:#C9DCC5;border-radius:3px;}"
         )
         if self._ops_list:
             for idx, op in enumerate(self._ops_list, 1):
@@ -124,14 +120,14 @@ class HighRiskConfirmDialog(QDialog):
             self,
         )
         keyword_lbl.setTextFormat(Qt.RichText)
-        keyword_lbl.setStyleSheet("color:#0F172A;font-size:12px;")
+        keyword_lbl.setStyleSheet("color:#24352A;font-size:12px;")
         root.addWidget(keyword_lbl)
 
         self.keyword_edit = QLineEdit(self)
         self.keyword_edit.setPlaceholderText(f"请输入 {self._require_keyword} 并回车...")
         self.keyword_edit.setStyleSheet(
-            "QLineEdit{background:white;border:1px solid #E2E8F0;border-radius:8px;padding:8px 10px;"
-            "font-size:13px;letter-spacing:2px;color:#334155;}"
+            "QLineEdit{background:white;border:1px solid #E2ECDE;border-radius:8px;padding:8px 10px;"
+            "font-size:13px;letter-spacing:2px;color:#4A5D46;}"
             "QLineEdit:focus{border-color:#DC2626;}"
         )
         self.keyword_edit.textChanged.connect(self._refresh_state)
@@ -149,7 +145,7 @@ class HighRiskConfirmDialog(QDialog):
             "QPushButton:enabled{background:#DC2626;color:white;border:none;border-radius:8px;"
             "padding:8px 14px;font-size:13px;font-weight:600;}"
             "QPushButton:enabled:hover{background:#B91C1C;}"
-            "QPushButton:disabled{background:#F1F5F9;color:#94A3B8;border:1px solid #E2E8F0;"
+            "QPushButton:disabled{background:#F0F6EC;color:#9AAD94;border:1px solid #E2ECDE;"
             "border-radius:8px;padding:8px 14px;font-size:13px;}"
         )
         self.btn_ok.clicked.connect(self._try_accept)
@@ -160,9 +156,9 @@ class HighRiskConfirmDialog(QDialog):
             cancel.setText("取消")
             cancel.setCursor(Qt.PointingHandCursor)
             cancel.setStyleSheet(
-                "QPushButton{background:white;color:#334155;border:1px solid #E2E8F0;"
+                "QPushButton{background:white;color:#4A5D46;border:1px solid #E2ECDE;"
                 "border-radius:8px;padding:8px 14px;font-size:13px;}"
-                "QPushButton:hover{background:#F1F5F9;}"
+                "QPushButton:hover{background:#F0F6EC;}"
             )
         self.button_box.rejected.connect(self._on_reject)
         root.addWidget(self.button_box)
@@ -199,8 +195,8 @@ class HighRiskConfirmDialog(QDialog):
                 )
             else:
                 self.keyword_edit.setStyleSheet(
-                    "QLineEdit{background:white;border:1px solid #E2E8F0;border-radius:8px;"
-                    "padding:8px 10px;font-size:13px;letter-spacing:2px;color:#334155;}"
+                    "QLineEdit{background:white;border:1px solid #E2ECDE;border-radius:8px;"
+                    "padding:8px 10px;font-size:13px;letter-spacing:2px;color:#4A5D46;}"
                     "QLineEdit:focus{border-color:#DC2626;}"
                 )
 

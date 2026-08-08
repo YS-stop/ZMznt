@@ -5,7 +5,6 @@ M5 阶段使用 mock 数据（3 天 × 3 条会话），M6 接入 SQLite Checkpo
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
@@ -17,8 +16,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
-    QPushButton,
-    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -116,7 +113,7 @@ class HistoryTabPage(QWidget):
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(2)
         splitter.setStyleSheet(
-            "QSplitter::handle{background:#E2E8F0;}"
+            "QSplitter::handle{background:#E2ECDE;}"
         )
 
         # 左侧：列表
@@ -144,7 +141,7 @@ class HistoryTabPage(QWidget):
     def _build_left(self, parent: QWidget) -> QWidget:
         wrap = QFrame(parent)
         wrap.setStyleSheet(
-            "QFrame{background:#FAFBFC;border:1px solid #E2E8F0;border-radius:10px;}"
+            "QFrame{background:#F7FAF4;border:1px solid #E2ECDE;border-radius:10px;}"
         )
         lay = QVBoxLayout(wrap)
         lay.setContentsMargins(8, 8, 8, 8)
@@ -152,7 +149,7 @@ class HistoryTabPage(QWidget):
 
         header = QHBoxLayout()
         title = QLabel("📜 历史会话", wrap)
-        title.setStyleSheet("color:#0F172A;font-size:14px;font-weight:700;")
+        title.setStyleSheet("color:#24352A;font-size:14px;font-weight:700;")
         header.addWidget(title, 1)
         btn_refresh = ChipButton("刷新", active=False, parent=wrap)
         btn_refresh.clicked.connect(self.reload_entries)
@@ -160,17 +157,17 @@ class HistoryTabPage(QWidget):
         lay.addLayout(header)
 
         subtitle = QLabel(f"共 {len(self._entries)} 条，按日期分组（mock 数据预览）", wrap)
-        subtitle.setStyleSheet("color:#64748B;font-size:11px;padding-left:2px;")
+        subtitle.setStyleSheet("color:#6E7F6A;font-size:11px;padding-left:2px;")
         lay.addWidget(subtitle)
 
         self.list_widget = QListWidget(wrap)
         self.list_widget.setStyleSheet(
-            "QListWidget{background:white;border:1px solid #E2E8F0;border-radius:8px;padding:2px;}"
+            "QListWidget{background:white;border:1px solid #E2ECDE;border-radius:8px;padding:2px;}"
             "QListWidget::item{border-radius:6px;padding:8px;margin:2px 2px;}"
-            "QListWidget::item:selected{background:#DBEAFE;color:#1E3A8A;}"
-            "QListWidget::item:hover:!selected{background:#F8FAFC;}"
+            "QListWidget::item:selected{background:#DEEDDF;color:#2E5238;}"
+            "QListWidget::item:hover:!selected{background:#F5F9F3;}"
             "QScrollBar:vertical{width:5px;}"
-            "QScrollBar::handle:vertical{background:#CBD5E1;border-radius:3px;}"
+            "QScrollBar::handle:vertical{background:#C9DCC5;border-radius:3px;}"
         )
         self.list_widget.currentRowChanged.connect(self._on_current_changed)
         self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -213,16 +210,16 @@ class HistoryTabPage(QWidget):
 
         top = QHBoxLayout()
         time_lbl = QLabel(f"⏰ {entry.time_str}", card)
-        time_lbl.setStyleSheet("color:#64748B;font-size:10px;")
+        time_lbl.setStyleSheet("color:#6E7F6A;font-size:10px;")
         top.addWidget(time_lbl, 0)
         cnt_lbl = QLabel(f"{entry.message_count} 条", card)
-        cnt_lbl.setStyleSheet("color:#94A3B8;font-size:10px;")
+        cnt_lbl.setStyleSheet("color:#9AAD94;font-size:10px;")
         cnt_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         top.addWidget(cnt_lbl, 1)
         lay.addLayout(top)
 
         title_lbl = QLabel(entry.title, card)
-        title_lbl.setStyleSheet("color:#0F172A;font-size:12px;font-weight:600;")
+        title_lbl.setStyleSheet("color:#24352A;font-size:12px;font-weight:600;")
         title_lbl.setWordWrap(True)
         lay.addWidget(title_lbl)
         return card
@@ -230,7 +227,7 @@ class HistoryTabPage(QWidget):
     def _build_right(self, parent: QWidget) -> QWidget:
         wrap = QFrame(parent)
         wrap.setStyleSheet(
-            "QFrame{background:white;border:1px solid #E2E8F0;border-radius:10px;}"
+            "QFrame{background:white;border:1px solid #E2ECDE;border-radius:10px;}"
         )
         lay = QVBoxLayout(wrap)
         lay.setContentsMargins(8, 8, 8, 8)
@@ -239,7 +236,7 @@ class HistoryTabPage(QWidget):
         # 顶部 header：会话标题 + 继续/删除
         head = QHBoxLayout()
         self.head_title = QLabel("← 请从左侧选择一条历史会话进行回看", wrap)
-        self.head_title.setStyleSheet("color:#0F172A;font-size:13px;font-weight:600;")
+        self.head_title.setStyleSheet("color:#24352A;font-size:13px;font-weight:600;")
         head.addWidget(self.head_title, 1)
         self.btn_continue = ChipButton("➡️  继续该会话", active=True, parent=wrap)
         self.btn_continue.clicked.connect(self._on_continue)
@@ -257,7 +254,7 @@ class HistoryTabPage(QWidget):
 
         # 底部：状态摘要
         self.summary_lbl = QLabel("（暂无内容）", wrap)
-        self.summary_lbl.setStyleSheet("color:#64748B;font-size:11px;padding:4px 6px;")
+        self.summary_lbl.setStyleSheet("color:#6E7F6A;font-size:11px;padding:4px 6px;")
         lay.addWidget(self.summary_lbl)
         return wrap
 
@@ -268,7 +265,6 @@ class HistoryTabPage(QWidget):
     def set_entries(self, entries: list[HistoryEntry]) -> None:
         self._entries = list(entries)
         self._fill_list()
-        summary = self.findChild(QLabel, "", Qt.FindDirectChildrenOnly)
 
     def reload_entries(self) -> None:
         """M6 接入 SQLite 后会改成读 CheckpointService。"""

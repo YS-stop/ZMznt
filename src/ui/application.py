@@ -14,14 +14,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QObject, Qt, Signal, QSize
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QMenu,
     QMessageBox,
     QSystemTrayIcon,
-    QWidget,
 )
 
 _PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
@@ -80,7 +79,7 @@ class AppController(QObject):
 
         # 4 种图标（对应悬浮球状态），托盘切换图标用
         self._tray_icons = {
-            FloatingBallState.IDLE:      QIcon(_make_color_pixmap("#3B82F6")),   # 蓝
+            FloatingBallState.IDLE:      QIcon(_make_color_pixmap("#5FA87C")),   # 叶青绿
             FloatingBallState.LISTENING: QIcon(_make_color_pixmap("#EF4444")),   # 红
             FloatingBallState.THINKING:  QIcon(_make_color_pixmap("#F59E0B")),   # 琥珀
             FloatingBallState.SPEAKING:  QIcon(_make_color_pixmap("#10B981")),   # 绿

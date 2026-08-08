@@ -1,17 +1,19 @@
 """M5.1 公共控件库：Accordion / ChipButton / BubbleList / SwitchToggle / LogHighlighter。
 
-设计系统（来自 PRD 5.1 Light Mode）：
-    Primary      #3B82F6  Blue-500    主按钮/悬浮球待机
-    Primary Hov  #2563EB  Blue-600    悬停
-    Accent       #8B5CF6  Violet-500  Agent 气泡/Agent 日志
+设计系统（淡绿自然 · 优雅 Light Mode）：
+    Primary      #5FA87C  叶青绿      主按钮/悬浮球待机/开关
+    Primary Hov  #4D9269  深叶绿      悬停
+    Primary Press#3F7D58  苔绿        按压
+    Primary Soft #EAF4EC  嫩芽底      淡绿底衬
+    Accent       #F1F7EE  青瓷底      Agent 气泡
     Warning      #F59E0B  Amber-500   思考/工具调用
     Danger       #EF4444  Red-500     录音中/错误日志/DELETE
     Success      #10B981  Emerald-500 TTS 播报中
-    Text Main    #0F172A  Slate-900   正文
-    Text Sub     #64748B  Slate-500   辅助文字
+    Text Main    #24352A  深松绿      正文
+    Text Sub     #6E7F6A  灰绿        辅助文字
     Bg           #FFFFFF  白
-    Surface      #F8FAFC  Slate-50    气泡背景
-    Border       #E2E8F0  Slate-200   分割线
+    Surface      #F5F9F3  浅芽白      气泡背景/卡片
+    Border       #E2ECDE  浅绿灰      分割线
 
 所有控件都是纯 QWidget 子类，无任何 Web 组件，可直接被悬浮球/抽屉/设置/调试面板复用。
 """
@@ -25,10 +27,9 @@ from PySide6.QtCore import (
     QPropertyAnimation,
     QSize,
     Qt,
-    QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QSyntaxHighlighter, QTextCharFormat, QTextDocument
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QSyntaxHighlighter, QTextCharFormat, QTextDocument
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
@@ -68,9 +69,9 @@ class AccordionSection(QWidget):
         # 外观
         self.setObjectName("AccordionSection")
         self.setStyleSheet(
-            "QWidget#AccordionSection{background:#FFFFFF;border:1px solid #E2E8F0;border-radius:10px;}"
-            "QLabel#AccordionTitle{color:#0F172A;font-size:14px;font-weight:600;padding:4px 0;}"
-            "QLabel#AccordionArrow{color:#64748B;font-size:13px;padding-right:6px;}"
+            "QWidget#AccordionSection{background:#FFFFFF;border:1px solid #E2ECDE;border-radius:10px;}"
+            "QLabel#AccordionTitle{color:#24352A;font-size:14px;font-weight:600;padding:4px 0;}"
+            "QLabel#AccordionArrow{color:#6E7F6A;font-size:13px;padding-right:6px;}"
         )
         self.setAttribute(Qt.WA_StyledBackground, True)
 
@@ -207,17 +208,17 @@ class ChipButton(QPushButton):
     def _apply_style(self) -> None:
         if self._active:
             self.setStyleSheet(
-                "QPushButton{background:#3B82F6;color:white;border:1px solid #3B82F6;"
+                "QPushButton{background:#5FA87C;color:white;border:1px solid #5FA87C;"
                 "border-radius:14px;padding:4px 12px;font-size:12px;font-weight:600;}"
-                "QPushButton:hover{background:#2563EB;border-color:#2563EB;}"
-                "QPushButton:pressed{background:#1D4ED8;}"
+                "QPushButton:hover{background:#4D9269;border-color:#4D9269;}"
+                "QPushButton:pressed{background:#3F7D58;}"
             )
         else:
             self.setStyleSheet(
-                "QPushButton{background:white;color:#334155;border:1px solid #E2E8F0;"
+                "QPushButton{background:white;color:#4A5D46;border:1px solid #E2ECDE;"
                 "border-radius:14px;padding:4px 12px;font-size:12px;}"
-                "QPushButton:hover{background:#F1F5F9;border-color:#CBD5E1;color:#0F172A;}"
-                "QPushButton:pressed{background:#E2E8F0;}"
+                "QPushButton:hover{background:#F0F6EC;border-color:#C6E2CC;color:#24352A;}"
+                "QPushButton:pressed{background:#E2ECDE;}"
             )
 
 
@@ -264,7 +265,7 @@ class SwitchToggle(QWidget):
         p.setRenderHint(QPainter.Antialiasing, True)
         w, h = 42, 24
         radius = h / 2
-        track_color = QColor("#3B82F6") if self._checked else QColor("#CBD5E1")
+        track_color = QColor("#5FA87C") if self._checked else QColor("#D3DECD")
         p.setPen(Qt.NoPen)
         p.setBrush(track_color)
         p.drawRoundedRect(0, 0, w, h, radius, radius)
@@ -311,8 +312,8 @@ class BubbleListWidget(QListWidget):
         self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         self.verticalScrollBar().setStyleSheet(
             "QScrollBar:vertical{width:6px;background:transparent;}"
-            "QScrollBar::handle:vertical{background:#CBD5E1;border-radius:3px;}"
-            "QScrollBar::handle:vertical:hover{background:#94A3B8;}"
+            "QScrollBar::handle:vertical{background:#C9DCC5;border-radius:3px;}"
+            "QScrollBar::handle:vertical:hover{background:#A8C4A2;}"
             "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
         )
 
@@ -357,16 +358,16 @@ class BubbleListWidget(QListWidget):
         # 时间戳
         if ts:
             ts_lbl = QLabel(ts, wrap)
-            ts_lbl.setStyleSheet("color:#94A3B8;font-size:11px;")
+            ts_lbl.setStyleSheet("color:#9AAD94;font-size:11px;")
             ts_lbl.setAlignment(Qt.AlignHCenter)
             root_layout.addWidget(ts_lbl, 0, Qt.AlignHCenter)
 
         if role == "system":
-            # 系统提示：居中灰 Chip
+            # 系统提示：居中淡绿灰 Chip
             chip = QLabel(content, wrap)
             chip.setWordWrap(True)
             chip.setStyleSheet(
-                "background:#F1F5F9;color:#475569;border-radius:10px;padding:5px 10px;"
+                "background:#F2F6EE;color:#687863;border-radius:10px;padding:5px 10px;"
                 "font-size:12px;"
             )
             chip.setAlignment(Qt.AlignCenter)
@@ -385,13 +386,13 @@ class BubbleListWidget(QListWidget):
         bubble_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         if is_user:
             bubble_lbl.setStyleSheet(
-                "background:#3B82F6;color:white;border-radius:12px;"
+                "background:#5FA87C;color:white;border-radius:12px;"
                 "border-top-right-radius:3px;padding:8px 12px;"
                 "font-size:13px;line-height:1.6;"
             )
         else:  # ai
             bubble_lbl.setStyleSheet(
-                "background:#F5F3FF;color:#1E1B4B;border:1px solid #DDD6FE;"
+                "background:#F1F7EE;color:#26402E;border:1px solid #DAE9D2;"
                 "border-radius:12px;border-top-left-radius:3px;padding:8px 12px;"
                 "font-size:13px;line-height:1.6;"
             )
@@ -445,7 +446,7 @@ class MessageLogHighlighter(QSyntaxHighlighter):
             self._formats.append((regex, fmt))
         # 默认正文
         self._default_fmt = QTextCharFormat()
-        self._default_fmt.setForeground(QColor("#0F172A"))
+        self._default_fmt.setForeground(QColor("#24352A"))
 
     def highlightBlock(self, text: str) -> None:  # noqa: N802
         # 先整个行设默认
@@ -468,8 +469,8 @@ class DebugLogView(QPlainTextEdit):
         self.setMaximumBlockCount(5000)
         self.setFont(QFont("Consolas, Menlo, Cascadia Mono", 10))
         self.setStyleSheet(
-            "QPlainTextEdit{background:#F8FAFC;color:#0F172A;"
-            "border:1px solid #E2E8F0;border-radius:8px;padding:8px;}"
+            "QPlainTextEdit{background:#F5F9F3;color:#24352A;"
+            "border:1px solid #E2ECDE;border-radius:8px;padding:8px;}"
         )
         self._hl = MessageLogHighlighter(self.document())
 

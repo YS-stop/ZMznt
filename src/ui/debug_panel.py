@@ -13,14 +13,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -102,8 +99,8 @@ class DebugPanel(QWidget):
         scroll.setStyleSheet(
             "QScrollArea{background:transparent;}"
             "QScrollBar:vertical{width:6px;background:transparent;}"
-            "QScrollBar::handle:vertical{background:#CBD5E1;border-radius:3px;}"
-            "QScrollBar::handle:vertical:hover{background:#94A3B8;}"
+            "QScrollBar::handle:vertical{background:#C9DCC5;border-radius:3px;}"
+            "QScrollBar::handle:vertical:hover{background:#9AAD94;}"
         )
         root.addWidget(scroll, 1)
 
@@ -125,7 +122,7 @@ class DebugPanel(QWidget):
 
         title = QLabel("🛠 消息同步调试面板（ASR → Agent → Tool → Obs → TTS）")
         title.setStyleSheet(
-            "color:#1E293B;font-size:13px;font-weight:700;padding:4px 0;"
+            "color:#24352A;font-size:13px;font-weight:700;padding:4px 0;"
         )
         lay.addWidget(title, 1)
 

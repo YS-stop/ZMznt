@@ -30,17 +30,21 @@ def _build_all() -> dict[str, "BaseTool"]:
     内部 import 避免模块级循环依赖。
     """
     # —— 子工具 ——
-    from src.tools.file_tools import (  # noqa: WPS433
+    from src.tools.file_tools import (
         CreateFileTool,
         SearchFilesTool,
         DeleteFileTool,
         RecognizeFileTool,
     )
-    from src.tools.browser_tools import OpenBrowserTool, CloseBrowserTabTool  # noqa: WPS433
-    from src.tools.news_tools import SearchNewsTool      # noqa: WPS433
-    from src.tools.voice_tools import VoiceInputTool, VoiceOutputTool  # noqa: WPS433
-    from src.tools.system_tools import get_all_system_tools  # noqa: WPS433  M6.2 新增
-    from src.tools.app_tools import (  # noqa: WPS433  桌面应用 + 屏幕监控
+    from src.tools.browser_tools import (
+        OpenBrowserTool,
+        CloseBrowserTabTool,
+        RestoreClosedTabTool,
+    )
+    from src.tools.news_tools import SearchNewsTool
+    from src.tools.voice_tools import VoiceInputTool, VoiceOutputTool
+    from src.tools.system_tools import get_all_system_tools  # M6.2 新增
+    from src.tools.app_tools import (  # 桌面应用 + 屏幕监控
         OpenAppTool,
         ListActiveAppsTool,
         RecognizeScreenTool,
@@ -51,6 +55,7 @@ def _build_all() -> dict[str, "BaseTool"]:
         SearchFilesTool(),
         OpenBrowserTool(),
         CloseBrowserTabTool(),
+        RestoreClosedTabTool(),
         # M1.5 新增
         DeleteFileTool(),
         RecognizeFileTool(),

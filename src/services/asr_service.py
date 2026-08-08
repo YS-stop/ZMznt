@@ -21,9 +21,7 @@
 """
 from __future__ import annotations
 
-import os
 import sys
-import tempfile
 import threading
 import time
 import wave
@@ -254,7 +252,7 @@ class ASRService:
 
         if sd is not None:
             try:
-                import numpy as np_safe  # type: ignore
+                pass  # type: ignore
             except Exception as e:  # noqa: BLE001
                 return False, f"numpy 未安装（sounddevice 需要 numpy 存数组）：{type(e).__name__}"
             try:

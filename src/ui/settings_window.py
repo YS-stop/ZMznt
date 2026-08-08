@@ -6,14 +6,11 @@
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
-    QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
@@ -24,7 +21,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -44,7 +40,7 @@ _SETTINGS_PAGES = [
 
 def _form_hint(text: str) -> QLabel:
     lbl = QLabel(text)
-    lbl.setStyleSheet("color:#64748B;font-size:11px;margin-top:-4px;")
+    lbl.setStyleSheet("color:#6E7F6A;font-size:11px;margin-top:-4px;")
     lbl.setWordWrap(True)
     return lbl
 
@@ -76,7 +72,7 @@ class SettingsWindow(QMainWindow):
         central = QWidget(self)
         central.setObjectName("SettingsOuter")
         central.setStyleSheet(
-            "QWidget#SettingsOuter{background:#F8FAFC;}"
+            "QWidget#SettingsOuter{background:#F5F9F3;}"
         )
         self.setCentralWidget(central)
         shadow = QGraphicsDropShadowEffect(central)
@@ -95,7 +91,7 @@ class SettingsWindow(QMainWindow):
         page_card = QFrame(central)
         page_card.setObjectName("PageCard")
         page_card.setStyleSheet(
-            "QFrame#PageCard{background:white;border:1px solid #E2E8F0;border-radius:14px;}"
+            "QFrame#PageCard{background:white;border:1px solid #E2ECDE;border-radius:14px;}"
         )
         shadow2 = QGraphicsDropShadowEffect(page_card)
         shadow2.setBlurRadius(20)
@@ -112,22 +108,22 @@ class SettingsWindow(QMainWindow):
         # 页面卡片头部：标题 + 保存 / 关闭按钮
         head = QFrame(page_card)
         head.setStyleSheet(
-            "QFrame{background:white;border-bottom:1px solid #E2E8F0;"
+            "QFrame{background:white;border-bottom:1px solid #E2ECDE;"
             "border-top-left-radius:14px;border-top-right-radius:14px;}"
         )
         head.setFixedHeight(60)
         head_lay = QHBoxLayout(head)
         head_lay.setContentsMargins(22, 0, 18, 0)
         self.page_title_lbl = QLabel(_SETTINGS_PAGES[0][1], head)
-        self.page_title_lbl.setStyleSheet("color:#0F172A;font-size:16px;font-weight:700;")
+        self.page_title_lbl.setStyleSheet("color:#24352A;font-size:16px;font-weight:700;")
         head_lay.addWidget(self.page_title_lbl, 1)
 
         btn_save = QPushButton("💾 保存", head)
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.setStyleSheet(
-            "QPushButton{background:#3B82F6;color:white;border-radius:8px;"
+            "QPushButton{background:#5FA87C;color:white;border-radius:8px;"
             "padding:7px 14px;font-size:12px;font-weight:600;border:none;}"
-            "QPushButton:hover{background:#2563EB;}"
+            "QPushButton:hover{background:#4D9269;}"
         )
         btn_save.clicked.connect(self._on_save_clicked)
         head_lay.addWidget(btn_save)
@@ -135,9 +131,9 @@ class SettingsWindow(QMainWindow):
         btn_close = QPushButton("关闭", head)
         btn_close.setCursor(Qt.PointingHandCursor)
         btn_close.setStyleSheet(
-            "QPushButton{background:white;color:#334155;border:1px solid #E2E8F0;"
+            "QPushButton{background:white;color:#4A5D46;border:1px solid #E2ECDE;"
             "border-radius:8px;padding:7px 14px;font-size:12px;}"
-            "QPushButton:hover{background:#F1F5F9;}"
+            "QPushButton:hover{background:#F0F6EC;}"
         )
         btn_close.clicked.connect(self.close)
         head_lay.addWidget(btn_close)
@@ -166,7 +162,7 @@ class SettingsWindow(QMainWindow):
         nav.setObjectName("NavBar")
         nav.setFixedWidth(190)
         nav.setStyleSheet(
-            "QFrame#NavBar{background:white;border:1px solid #E2E8F0;border-radius:14px;}"
+            "QFrame#NavBar{background:white;border:1px solid #E2ECDE;border-radius:14px;}"
         )
         shadow = QGraphicsDropShadowEffect(nav)
         shadow.setBlurRadius(14)
@@ -180,7 +176,7 @@ class SettingsWindow(QMainWindow):
         lay.setContentsMargins(10, 14, 10, 14)
         lay.setSpacing(6)
         title = QLabel("📂 分类", nav)
-        title.setStyleSheet("color:#64748B;font-size:11px;font-weight:600;padding:4px 8px;")
+        title.setStyleSheet("color:#6E7F6A;font-size:11px;font-weight:600;padding:4px 8px;")
         lay.addWidget(title)
 
         for key, label in _SETTINGS_PAGES:
@@ -193,7 +189,7 @@ class SettingsWindow(QMainWindow):
         lay.addStretch(1)
 
         ver = QLabel("版本：v0.5.0 (M5)", nav)
-        ver.setStyleSheet("color:#94A3B8;font-size:10px;padding:4px 8px;")
+        ver.setStyleSheet("color:#9AAD94;font-size:10px;padding:4px 8px;")
         lay.addWidget(ver)
         return nav
 
@@ -223,7 +219,7 @@ class SettingsWindow(QMainWindow):
         scroll.setStyleSheet(
             "QScrollArea{background:white;}"
             "QScrollBar:vertical{width:6px;background:transparent;}"
-            "QScrollBar::handle:vertical{background:#CBD5E1;border-radius:3px;}"
+            "QScrollBar::handle:vertical{background:#C9DCC5;border-radius:3px;}"
         )
         scroll.setWidget(wrap)
         page_lay = QVBoxLayout(page_widget)
@@ -233,7 +229,7 @@ class SettingsWindow(QMainWindow):
 
     def _form_row(self, form: QFormLayout, label: str, field: QWidget, hint: Optional[str] = None) -> None:
         lab = QLabel(label)
-        lab.setStyleSheet("color:#0F172A;font-size:13px;font-weight:500;padding:4px 0;")
+        lab.setStyleSheet("color:#24352A;font-size:13px;font-weight:500;padding:4px 0;")
         form.addRow(lab, field)
         if hint:
             form.addRow(None, _form_hint(hint))

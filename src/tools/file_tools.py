@@ -677,7 +677,7 @@ class DeleteFileTool(BaseTool):
             dirs_count = sum(1 if it[2] else 0 for it in items)
             elapsed_ms = (time.perf_counter_ns() - t0) // 1_000_000
             header = (
-                f"🗑️ delete_file（{'✅ DRY-RUN 预览模式，未真删' if dry_run else f'⚠️ 真删模式 confirm=DELETE 已执行'}）\n"
+                f"🗑️ delete_file（{'✅ DRY-RUN 预览模式，未真删' if dry_run else '⚠️ 真删模式 confirm=DELETE 已执行'}）\n"
                 f"  target       = {target}\n"
                 f"  search_root= {search_root}  recursive={recursive}\n"
                 f"  合计删除数量 = 文件 {files_count} 个 + 目录 {dirs_count} 个  = {len(items)} 项\n"
@@ -699,7 +699,7 @@ class DeleteFileTool(BaseTool):
                     lines.append(f"     …… 还有 {len(protect_skipped) - 5} 条")
 
             # —— 6. dry_run：只列预览（前 50 条，后面截
-            lines.append(f"  📋 待删除列表（前 50 条）：")
+            lines.append("  📋 待删除列表（前 50 条）：")
             show_n = min(50, len(items))
             for i, (p, size, is_dir, _reason) in enumerate(items[:show_n], start=1):
                 mark = "[DIR ]" if is_dir else "[FILE]"
@@ -796,7 +796,7 @@ _EXT_CATEGORY: dict[str, str] = {
     ".ico": "图片", ".raw": "图片",
     # 视频
     ".mp4": "视频", ".avi": "视频", ".mov": "视频", ".wmv": "视频", ".flv": "视频",
-    ".mkv": "视频", ".webm": "视频", ".m4v": "视频", ".ts": "视频",
+    ".mkv": "视频", ".webm": "视频", ".m4v": "视频",
     # 音频
     ".mp3": "音频", ".wav": "音频", ".flac": "音频", ".aac": "音频", ".ogg": "音频",
     ".m4a": "音频", ".wma": "音频", ".ape": "音频",

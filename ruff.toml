@@ -1,0 +1,17 @@
+# Ruff 配置 —— 桌面语音助手
+# QA-1 门禁口径：只卡 E/W/F 级（对齐分步执行计划「无 E/W 级错误」）
+# 风格级规则（UP/I001/BLE 等）不强制——尤其 I001 import 排序会破坏 main.py 的
+# 「torch 必须先于 PySide6 加载」顺序（段错误教训），切勿开启 --fix 全量修。
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "W", "F"]
+# 中文注释/LLM 提示词字符串普遍较长，E501 误报多，不纳入门禁
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# 入口/服务层需要先插 sys.path 再 import，E402 是刻意模式
+"src/main.py" = ["E402"]
+"src/services/agent_service.py" = ["E402"]
+"src/tools/__init__.py" = ["E402"]

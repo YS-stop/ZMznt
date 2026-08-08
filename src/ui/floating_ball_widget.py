@@ -1,7 +1,7 @@
 """P-01 桌面悬浮球：无边框+始终置顶+可拖拽+4 状态自绘动画。
 
 4 状态（对应 PRD 5.0 悬浮球形态）：
-    idle        = 待机：蓝渐变静态，显示 🎙️ 图标
+    idle        = 待机：叶青绿渐变静态，显示 🎙️ 图标
     listening   = 录音中：红圈脉冲动画，显示 🔴 录音提示
     thinking    = 思考中：琥珀色转圈动画，显示 ⏳
     speaking    = 播报中：翠绿色呼吸动画，显示 🔊
@@ -21,7 +21,7 @@ from enum import IntEnum
 from typing import Optional
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QConicalGradient, QCursor, QFont, QLinearGradient, QPainter, QPen, QPixmap
+from PySide6.QtGui import QAction, QBrush, QColor, QConicalGradient, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QMenu, QWidget
 
 
@@ -171,8 +171,7 @@ class FloatingBallWidget(QWidget):
         # ----- 外圈：根据状态绘制动画 -----
         state = self._state
         if state == FloatingBallState.IDLE:
-            # 外圈柔和阴影+描边
-            shadow_pen = QPen(QColor(0, 0, 0, 40), 2)
+            # 外圈柔和阴影
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(0, 0, 0, 30))
             p.drawEllipse(3, 5, size - 6, size - 6)
@@ -210,10 +209,10 @@ class FloatingBallWidget(QWidget):
 
         # ----- 内球渐变 -----
         if state == FloatingBallState.IDLE:
-            # Blue 渐变
+            # 叶青绿渐变（淡绿自然主题）
             grd = QLinearGradient(0, 0, size, size)
-            grd.setColorAt(0.0, QColor("#60A5FA"))
-            grd.setColorAt(1.0, QColor("#3B82F6"))
+            grd.setColorAt(0.0, QColor("#92CDA6"))
+            grd.setColorAt(1.0, QColor("#5FA87C"))
         elif state == FloatingBallState.LISTENING:
             grd = QLinearGradient(0, 0, size, size)
             grd.setColorAt(0.0, QColor("#FCA5A5"))
