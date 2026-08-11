@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -298,6 +299,48 @@ class SettingsWindow(QMainWindow):
             self.field_voice_save_rec = save_asr_recording
             self._form_row(form, "ASR 自动保存录音", save_asr_recording, "保存到 data/asr_cache/，便于排查识别错误。")
 
+            # —— 持续监听 / 智能尾点检测（真实生效，保存后热加载） ——
+            listen_title = QLabel("🎧 持续监听 · 智能尾点检测", page)
+            listen_title.setStyleSheet("color:#24352A;font-size:14px;font-weight:700;padding-top:10px;")
+            form.addRow(listen_title)
+
+            try:
+                from src.services.sqlite_db import get_setting as _get_setting
+                _vad = lambda k, d: _get_setting(k, d)  # noqa: E731
+            except Exception:  # noqa: BLE001
+                _vad = lambda k, d: d  # noqa: E731
+
+            tail = QDoubleSpinBox(page)
+            tail.setRange(0.5, 3.0)
+            tail.setSingleStep(0.1)
+            tail.setDecimals(1)
+            tail.setSuffix(" 秒")
+            tail.setValue(float(_vad("vad_tail_silence_sec", 1.2)))
+            self.field_vad_tail = tail
+            self._form_row(form, "尾点静音阈值", tail, "连续静音多久判定发言结束。说话停顿多可调 1.5~2.0；追求响应速度可设 0.8~1.0。")
+
+            max_rec = QSpinBox(page)
+            max_rec.setRange(5, 120)
+            max_rec.setSuffix(" 秒")
+            max_rec.setValue(int(_vad("vad_max_record_sec", 30)))
+            self.field_vad_max_rec = max_rec
+            self._form_row(form, "最长录音时长", max_rec, "单次监听最大时长，超时强制提交识别。日常指令无需修改。")
+
+            await_speech = QSpinBox(page)
+            await_speech.setRange(3, 15)
+            await_speech.setSuffix(" 秒")
+            await_speech.setValue(int(_vad("vad_await_speech_sec", 5)))
+            self.field_vad_await = await_speech
+            self._form_row(form, "唤醒后等待开口超时", await_speech, "超时后语音提示「在呢，请说」，再等 3 秒仍无发言自动退出监听。")
+
+            ratio = QDoubleSpinBox(page)
+            ratio.setRange(1.5, 6.0)
+            ratio.setSingleStep(0.1)
+            ratio.setDecimals(1)
+            ratio.setValue(float(_vad("vad_threshold_ratio", 3.0)))
+            self.field_vad_ratio = ratio
+            self._form_row(form, "能量阈值系数", ratio, "语音判定灵敏度：环境嘈杂调高（如 4.0），安静环境调低（如 2.5）。")
+
         elif key == "hotkeys":
             hk_panel = QLineEdit("Ctrl + Alt + D", page)
             hk_panel.setReadOnly(True)
@@ -390,19 +433,40 @@ class SettingsWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_save_clicked(self) -> None:
-        """保存（M5 暂只弹 toast 占位，后续接 settings_service）。"""
+        """保存：持续监听（vad_*）参数真实写 SQLite 并热生效，其余字段仍为预览占位。"""
+        saved: list[str] = []
+        try:
+            from src.services.sqlite_db import set_setting
+            vad_map = [
+                ("vad_tail_silence_sec", round(float(self.field_vad_tail.value()), 1)),
+                ("vad_max_record_sec", int(self.field_vad_max_rec.value())),
+                ("vad_await_speech_sec", int(self.field_vad_await.value())),
+                ("vad_threshold_ratio", round(float(self.field_vad_ratio.value()), 1)),
+            ]
+            for k, v in vad_map:
+                set_setting(k, v)
+                self.settings_changed.emit(k, v)
+                saved.append(k)
+        except Exception:  # noqa: BLE001 - DB 不可用时静默降级为预览
+            saved = []
+
         from PySide6.QtWidgets import QMessageBox
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Information)
         msg.setWindowTitle("设置保存")
-        msg.setText("💾 设置已记录（M5 预览版：占位保存）")
-        msg.setInformativeText(
-            "下一阶段 M6 将接真实 settings_service：写 .env + settings.json + Windows 注册表 + SQLite，\n"
-            "届时本窗口各字段都会真正生效。"
-        )
+        if saved:
+            msg.setText("💾 持续监听参数已保存并即时生效")
+            msg.setInformativeText(
+                "尾点静音阈值 / 最长录音 / 等待开口超时 / 阈值系数 已写入本地设置，\n"
+                "唤醒监听服务已热加载新参数，无需重启。\n"
+                "（其余分类字段仍为预览占位，后续里程碑接入。）"
+            )
+        else:
+            msg.setText("💾 设置已记录（预览版：占位保存）")
+            msg.setInformativeText("本地设置数据库不可用，本次修改未持久化。")
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec()
-        # 同时发一个信号，便于 main/application 连接
+        # 兼容旧信号（占位）
         self.settings_changed.emit("_saved_placeholder_", True)
 
     def closeEvent(self, ev) -> None:  # noqa: N802

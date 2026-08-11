@@ -74,6 +74,13 @@ class AgentState(TypedDict, total=False):
     user_id: str
     """预留多用户字段，当前单用户版固定 'default'"""
 
+    step_count: int
+    """Agent 已执行的 agent→tool 轮次计数，用于防止死循环"""
+
+    runtime_system: str
+    """运行时系统提示：调用方注入（通常含长期记忆），优先于默认 system_prompt。
+    每次用户输入都会刷新；agent_node 读取它构造 SystemMessage。"""
+
 
 # 单用户默认值，Graph 初始化 state 时用
 DEFAULT_STATE: dict[str, Any] = {
@@ -83,6 +90,8 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_tool_results": [],
     "debug_log": [],
     "user_id": "default",
+    "step_count": 0,
+    "runtime_system": "",
 }
 
 

@@ -383,9 +383,9 @@ class TranslateTextTool(BaseTool):
 
         # ---- 调 Qwen LLM ----
         try:
-            from src.infra.llm_client import get_qwen_llm
+            from src.infra.llm_client import get_main_llm
             from langchain_core.messages import SystemMessage, HumanMessage
-            llm = get_qwen_llm(temperature=0.1)
+            llm = get_main_llm(temperature=0.1)
             t0 = time.time()
             out = llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=original)])
             dt_ms = int((time.time() - t0) * 1000)

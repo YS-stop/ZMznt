@@ -63,7 +63,9 @@ def _load_env() -> None:
     ]
     for env_path in env_candidates:
         if env_path.exists():
-            load_dotenv(env_path, override=False)
+            # override=True：让 .env 文件始终优先于系统/用户环境变量，
+            # 避免 Windows 用户环境变量里的 QWEN_API_KEY 等盖掉本项目的 .env 配置。
+            load_dotenv(env_path, override=True)
             return
 
 
@@ -151,6 +153,15 @@ def main() -> int:
 
     # Step 3: 建 SQLite 三张表 + 默认 settings
     init_sqlite()
+
+    # Step 3.5: 启动 LangGraph Checkpoint（SQLite 持久化，跨重启保留会话记忆）
+    try:
+        from src.services.checkpoint_service import get_checkpoint_info, start_checkpoint_service
+        start_checkpoint_service(force_backend="sqlite")
+        info = get_checkpoint_info()
+        print(f"[startup] Checkpoint 后端={info.get('backend')} | {info.get('note')}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[startup] Checkpoint 启动异常（降级内存）：{type(e).__name__}: {e}")
 
     # （ASR 原生依赖已在文件顶部、import PySide6 之前预加载，见 _preload_asr_native_deps）
 

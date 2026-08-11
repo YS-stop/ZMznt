@@ -17,6 +17,7 @@ Graph 结构（标准 ReAct 循环）：
 """
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -41,7 +42,7 @@ from langgraph.graph.state import CompiledStateGraph  # noqa: E402
 from langgraph.prebuilt import ToolNode  # noqa: E402
 
 from src.core.state import AgentState, DEFAULT_STATE  # noqa: E402
-from src.infra.llm_client import get_qwen_llm  # noqa: E402
+from src.infra.llm_client import get_main_llm  # noqa: E402
 from src.services.checkpoint_service import get_checkpointer  # noqa: E402
 from src.tools import get_all_tools  # noqa: E402
 
@@ -49,7 +50,12 @@ from src.tools import get_all_tools  # noqa: E402
 # ============================================================
 # System Prompt：给 LLM 说清楚工具用法 + 高危操作二次确认
 # ============================================================
-DEFAULT_SYSTEM_PROMPT = """你是「桌面语音小助手」，是运行在用户本地电脑上的全能助手。你必须严格使用提供的工具完成任务，不要凭空猜测，不要编造结果。
+DEFAULT_SYSTEM_PROMPT = """你是「桌面语音小助手」，是运行在用户本地电脑上的全能助手。
+
+## 核心原则（最高优先级）
+1. **必须调用工具完成任务**：用户说"打开XX""搜索XX""关闭XX"时，你必须调用对应工具（open_browser/search_news/close_browser_tab等），绝对不能用自然语言"解释"或"描述"来代替工具调用。
+2. **不要编造结果**：工具返回什么就如实转告用户，不要自己编造成功/失败信息。
+3. **先调工具再回答**：收到用户指令后，第一步永远是选择并调用合适的工具，而不是直接输出文字。
 
 ## 一、工具列表（按需要选择，一次最多可并行调用多个）
 
@@ -95,7 +101,7 @@ DEFAULT_SYSTEM_PROMPT = """你是「桌面语音小助手」，是运行在用�
 3.7 **list_active_apps(filter_keyword="")** 和 **recognize_screen(question)**
    - 桌面监控两件套：
      - 「我桌面上开了哪些应用」「微信开着吗」→ list_active_apps（快、不联网，只列窗口+进程）
-     - 「看看屏幕上显示什么」「读一下当前窗口里的报错」→ recognize_screen（截图 + Qwen-VL 视觉识别，需联网，较慢）
+     - 「看看屏幕上显示什么」「读一下当前窗口里的报错」→ recognize_screen（截图 + GLM-4.1V 视觉识别，需联网，较慢）
 
 4. **⚠️ delete_file（高危！必须两次调用）**
    - 参数：target, search_root="白名单默认", recursive=False, **dry_run=True**, confirm_keyword=None, max_items=100
@@ -121,17 +127,100 @@ DEFAULT_SYSTEM_PROMPT = """你是「桌面语音小助手」，是运行在用�
    - hours>0：按最近 N 小时过滤（24=一天内，168=一周内）。
    - **注意**：当前版本只返回原文列表，不会替你总结；如需总结请 LLM 自己读列表后用自然语言总结给用户。
 
+## 一.A、网页自动化能力（M9 新增）
+
+当用户说「打开XX网站」「帮我点XX按钮」「在网页上搜XX」「读一下这个网页内容」「帮我在网页上填XX」等涉及浏览器**页面内操作**的请求时，使用以下 browser_* 工具。
+
+**⚠️ 重要规则（LLM必须严格遵守，否则会造成反复打开新页面的bug）：**
+- `open_browser` 每个任务**最多调用1次**，仅用于首次打开网站。绝对不要因为后续browser_*工具报错就反复调用open_browser！
+- 打开网站后，**所有后续操作**（跳转、点击、输入、搜索、翻页、读内容）都必须使用 browser_* 系列工具，禁止再调用open_browser。
+- 用户说「在抖音搜XX」「在百度搜XX」「在B站搜XX」等"在某个网站内搜索"的请求时：
+  ① 如果浏览器还没打开，先调用 `open_browser(target=网站名)` 打开对应网站。
+  ② 调用 `browser_list_elements()` 查看页面上的元素（重点找搜索框/搜索按钮）。
+  ③ 调用 `browser_input(text="搜索内容", submit=True, element_desc="搜索框")` 自动查找搜索框并输入+回车提交。
+  ④ 等待搜索结果加载后，用 `browser_extract_text()` 读取结果并总结给用户。
+  **绝对不要**调用open_browser传入"抖音 XX"或"XX 搜索"之类的关键词（这会打开百度搜索页，不是站内搜索）。
+- 如果browser_*工具返回"没有检测到带调试端口的浏览器"，说明open_browser还没成功建立CDP连接。此时应立即调用open_browser(target=网站名)打开网站，然后再用browser_*工具操作。
+- **防死循环规则**：如果同一个工具连续 2 次返回相同错误，停止重试，把错误原因告诉用户。但注意：**"没有调试端口"类错误应该通过调用open_browser来解决，而不是重试browser_*工具**。
+
+**标准工作流**（LLM必须遵循）：
+1. 【进入页面】首次打开用 `open_browser(target=网站名)`；之后页内跳转用 `browser_navigate(url=...)`。
+2. 【查看元素】用 `browser_list_elements()` 列出页面所有可交互元素（按钮/链接/输入框）及其序号。
+3. 【操作】根据元素序号调用：
+   - 点击：`browser_click(element_index=N, element_desc="用户描述")`
+   - 输入+搜索：`browser_input(text="内容", submit=True, element_desc="搜索框")`（submit=True会自动按回车）
+   - 仅输入不提交：`browser_input(element_index=N, text="内容", submit=False)`
+   - 滚动：`browser_scroll(direction="down"/"up"/"top"/"bottom")`
+4. 【读取结果】操作后用 `browser_extract_text()` 读取页面正文，或再次 `browser_list_elements()` 查看新页面状态，然后总结给用户。
+
+**工具详解**：
+
+7. **browser_navigate(url)**
+   - 在当前浏览器标签中导航到指定 URL。
+   - url 支持：完整URL、域名、快捷站点名（同open_browser）。
+   - 与open_browser区别：open_browser首次打开浏览器（带调试端口），browser_navigate用于已打开浏览器内跳转。
+
+8. **browser_refresh() / browser_go_back() / browser_go_forward()**
+   - 刷新页面 / 后退 / 前进，无参数。
+   - 「刷新一下」→ browser_refresh；「返回上一页」→ browser_go_back。
+
+9. **browser_scroll(direction="down")**
+   - 页面滚动：down(下翻一页)/up(上翻一页)/top(顶部)/bottom(底部)。
+   - 「往下翻」→ direction="down"；「回到顶部」→ direction="top"。
+
+10. **browser_list_elements()**
+    - 列出当前页面所有可交互元素（按钮/链接/输入框等），返回带序号的列表。
+    - **点击/输入前必须先调用此工具获取准确的element_index**，否则可能点错。
+    - 页面找不到目标元素时先滚动或刷新后再次list。
+
+11. **browser_click(element_index, element_desc="")**
+    - 点击页面上序号为element_index的元素。
+    - element_desc可选：用户对元素的自然语言描述（如"搜索按钮""蓝色登录按钮"），用于DOM定位不准时视觉模型辅助定位。
+    - **高危操作自动拦截**：遇到包含"支付/付款/删除/密码/转账"等关键词的按钮会返回确认提示，LLM需转告用户确认后再操作。
+
+12. **browser_input(element_index, text, submit=False, element_desc="")**
+    - 在输入框填写文本。element_index=-1时自动查找第一个文本/搜索输入框。
+    - submit=True表示输入后自动按回车提交（搜索场景必用）。
+    - 例：「在百度搜今天天气」→ element_index=-1, text="今天天气", submit=True。
+    - **禁止自动输入密码**（密码框会被拦截）。
+
+13. **browser_extract_text()**
+    - 提取页面正文（自动找main/article区域，最长5000字）。
+    - 返回正文后LLM需自己阅读并总结给用户，不要直接原样输出长文本。
+    - 「读一下页面上写了什么」「帮我看看这篇文章内容」→ 用此工具。
+
+14. **browser_list_tabs(action="list", tab_index=-1)**
+    - 标签页管理：action="list"列出所有标签；action="switch"+tab_index切换到指定序号标签。
+    - 「现在开了几个标签」→ list；「切到第二个标签」→ switch, tab_index=1。
+
+**安全说明**：
+- 密码/支付/转账/删除 等高危操作会被拦截并要求用户二次确认，LLM 不得绕过。
+- 非白名单域名会提示但不阻止操作，转告用户时注意提醒风险。
+- 所有操作仅作用于通过 open_browser 启动的带调试端口的浏览器实例，不会控制系统其他浏览器。
+
 ## 二、路径别名（LLM 不要再硬编码绝对路径！）
 
 中文前缀：桌面/文档/下载/数据根/项目根/家(~)
 英文前缀：Desktop/Documents/Downloads/data/project/home
 例：「数据根/会议记录/2026-08.md」「桌面/周报 W32.docx」
 
-## 三、回答风格
+## 三、回答风格与输出格式
 
-- 中文、简洁、步骤清晰、结果结构化（适当用 ① ② ③ / 📝 📎 🔗 ⚠️ 📰 等 emoji 分点）。
-- 工具调用成功就明确说「已执行成功」，失败就把工具返回的错误原文复述并给出解决建议（例如「C:\\Windows 被安全层拒绝，请换桌面或数据根路径下新建」）。
-- 遇到用户要求超出白名单范围或高危操作时，不要嘴硬，解释风险后请用户确认或换更安全的方式。
+- **中文、简洁、自然口语化**。你的回答会被语音播报（TTS），所以必须是可以"念出来"的干净文本。
+- **严禁使用以下格式**（TTS 会乱读）：
+  - ❌ Markdown 粗体/斜体：`**文字**` `*文字*` `__文字__`
+  - ❌ Emoji / 特殊符号：✅ ⚠️ 📝 🔍 💡 ❌ → 以及任何彩色方块符号
+  - ❌ 箭头符号：→ ← ↑ ↓
+  - ❌ 方括号工具引用：`[browser_click]` `[open_browser]`
+  - ❌ 代码块/反引号：``` ``` `
+- **正确的分点方式**：用中文数字「第一」「第二」「第三」或「1.」「2.」开头，每条一行，不加任何装饰符号。
+- **示例对比**：
+  - ❌ 错误：`**安全提醒**：✅ 已为您打开抖音 → [open_browser] 成功`
+  - ✅ 正确：已为您打开抖音，操作成功。
+  - ❌ 错误：`⚠️ **为什么不能代输**：出于隐私保护原则…`
+  - ✅ 正确：关于为什么不能帮您输入验证码——这是出于隐私保护原则…
+- 工具调用成功就明确说「已执行成功」，失败就把工具返回的错误原文复述并给出解决建议。
+- 遇到用户要求超出白名单范围或高危操作时，解释风险后请用户确认或换更安全的方式。
 - delete_file 的两次调用流程是硬规则，**LLM 不得省略第一步 dry_run 直接跳到第二步真删**。如果 LLM 直接真删将被二次确认门槛直接挡住返回红色错误，届时请回退一步先执行 dry_run 预览。
 """
 
@@ -175,7 +264,7 @@ class AssistantAgent:
         self.max_steps: int = max(1, int(max_steps))
 
         # 1. LLM（不指定就用 Qwen 默认单例；bind_tools 后生成 llm_with_tools 给 agent_node 用）
-        self.llm: BaseChatModel = llm if llm is not None else get_qwen_llm()
+        self.llm: BaseChatModel = llm if llm is not None else get_main_llm()
         self.tools: list[Any] = list(tools) if tools else get_all_tools()
         if not self.tools:
             raise ValueError("AssistantAgent 至少需要 1 个工具，当前 get_all_tools() 为空")
@@ -201,22 +290,43 @@ class AssistantAgent:
         llm_with_tools = self.llm_with_tools
         system_prompt = self.system_prompt
 
+        max_steps_local = self.max_steps
+
         def _agent_node(state: AgentState) -> dict[str, Any]:
             """Agent 节点：SystemMessage + 历史 messages → LLM → 返回新 AIMessage。"""
+            step_count = int(state.get("step_count") or 0)
+            if step_count >= max_steps_local:
+                # 已达到最大步数，强制结束并给出友好提示
+                stop_msg = (
+                    f"⚠️ 任务执行步数已达到上限（{max_steps_local} 步）。"
+                    "当前操作链过长或工具反复失败，我已停止尝试。"
+                    "建议：简化指令，或检查浏览器/网络/API配置后重试。"
+                )
+                return {"messages": [AIMessage(content=stop_msg)], "step_count": step_count}
+
             messages: list[BaseMessage] = list(state.get("messages") or [])
-            # 在最前面插 SystemMessage（如果还没插过——简单起见每次都插到最前面，同内容 LLM 不敏感）
-            full = [SystemMessage(content=system_prompt)] + messages
+            # 窗口截断：防止长期运行上下文无限增长（token 爆炸）。
+            # 早期信息已由 MemoryService 提炼成长期记忆，通过 runtime_system 注入补充。
+            max_ctx = int(os.environ.get("AGENT_MAX_CTX", "28"))
+            if len(messages) > max_ctx:
+                messages = messages[-max_ctx:]
+            # 运行时系统提示：优先用调用方注入的 runtime_system（已含长期记忆），否则用默认
+            sys_text = state.get("runtime_system") or system_prompt
+            full = [SystemMessage(content=sys_text)] + messages
             try:
                 ai_msg: BaseMessage = llm_with_tools.invoke(full)
             except Exception as e:  # noqa: BLE001
                 # LLM 抛错（网络断开/403/Key 错）：包装成 AIMessage 告诉用户，别让图崩
                 ai_msg = AIMessage(
-                    content=f"⚠️ LLM 调用失败：{type(e).__name__}: {e}\n建议检查网络或 .env 中 QWEN_API_KEY 配置。"
+                    content=f"⚠️ LLM 调用失败：{type(e).__name__}: {e}\n建议检查网络或 .env 中 LLM_API_KEY 配置。"
                 )
-            return {"messages": [ai_msg]}
+            return {"messages": [ai_msg], "step_count": step_count + 1}
 
         def _should_continue(state: AgentState) -> str:
             """条件边：最后一条是 AIMessage 且有 tool_calls → 去 tools；否则结束。"""
+            step_count = int(state.get("step_count") or 0)
+            if step_count >= max_steps_local:
+                return END
             last = (state.get("messages") or [])[-1] if (state.get("messages") or []) else None
             if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
                 return "tools"
@@ -289,6 +399,36 @@ class AssistantAgent:
         return final_text
 
     # —————————————————————————————————————————————————————————————
+    # 会话历史读取（供记忆沉淀 / 兜底提取 final 用）
+    # —————————————————————————————————————————————————————————————
+
+    def get_thread_messages(self, thread_id: str) -> list:
+        """从 Checkpointer 读某 thread 的全部消息（用于记忆沉淀 / 调试）。"""
+        return self._read_ckpt_messages(thread_id)
+
+    def last_state(self, thread_id: str) -> Optional[dict[str, Any]]:
+        """兜底获取 thread 最后状态（供 _extract_final_from_graph_last 使用）。"""
+        msgs = self._read_ckpt_messages(thread_id)
+        return {"messages": msgs}
+
+    def _read_ckpt_messages(self, thread_id: str) -> list:
+        ckpt = self.checkpointer
+        if ckpt is None:
+            return []
+        cfg = {"configurable": {"thread_id": str(thread_id)}}
+        try:
+            tup = ckpt.get_tuple(cfg)
+        except Exception:  # noqa: BLE001
+            return []
+        if tup is None:
+            return []
+        ck = getattr(tup, "checkpoint", None)
+        if not isinstance(ck, dict):
+            return []
+        ch = ck.get("channel_values", {}) or {}
+        return list(ch.get("messages", []) or [])
+
+    # —————————————————————————————————————————————————————————————
     # 内部：统一执行入口
     # —————————————————————————————————————————————————————————————
 
@@ -333,7 +473,8 @@ class AssistantAgent:
 
         config: dict[str, Any] = {
             "configurable": {"thread_id": input_state["thread_id"]},
-            "recursion_limit": max(3, self.max_steps * 2 + 4),
+            # 给 agent→tools→agent 循环留足余量，但防止死循环无限增长
+            "recursion_limit": max(25, self.max_steps * 3 + 4),
         }
 
         try:
@@ -371,7 +512,16 @@ class AssistantAgent:
                 final_text = str(getattr(msgs_final[-1], "content", msgs_final[-1]))
         except Exception as e:  # noqa: BLE001 - LangGraph 层任何异常都兜住返回用户可读字符串
             err = e
-            final_text = f"❌ Agent 执行异常：{type(e).__name__}: {e}\n(总耗时 {(time.perf_counter_ns() - t0)//1_000_000} ms)"
+            err_name = type(e).__name__
+            elapsed_ms = (time.perf_counter_ns() - t0) // 1_000_000
+            if "RecursionError" in err_name or "GraphRecursionError" in err_name:
+                final_text = (
+                    f"⚠️ 执行步骤过多（{err_name}），任务已自动停止（耗时 {elapsed_ms} ms）。\n"
+                    "可能原因：工具调用失败导致助手反复重试。\n"
+                    "建议：1) 简化指令分步执行；2) 检查浏览器是否正常打开；3) 确认网络/API可用。"
+                )
+            else:
+                final_text = f"❌ Agent 执行异常：{err_name}: {e}\n(总耗时 {elapsed_ms} ms)"
 
         if not final_text:
             final_text = "(Agent 未返回任何回答)"

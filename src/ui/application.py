@@ -231,14 +231,26 @@ class AppController(QObject):
         if state in self._tray_icons:
             self.tray.setIcon(self._tray_icons[state])
 
-    def append_user_bubble(self, text: str, ts: Optional[str] = None) -> None:
-        self.panel.append_user(text, ts)
+    def append_user_bubble(self, text: str, ts: Optional[str] = None, is_preview: bool = False) -> None:
+        self.panel.append_user(text, ts, is_preview=is_preview)
 
     def append_ai_bubble(self, text: str, ts: Optional[str] = None) -> None:
         self.panel.append_ai(text, ts)
 
     def append_system_bubble(self, text: str, ts: Optional[str] = None) -> None:
         self.panel.append_system(text, ts)
+
+    def update_user_preview(self, text: str) -> None:
+        """M8: 更新用户语音实时预览气泡。"""
+        self.panel.update_user_preview(text)
+
+    def finalize_user_message(self, text: str) -> None:
+        """M8: 将预览气泡转为正式用户消息。"""
+        self.panel.finalize_user_message(text)
+
+    def clear_user_preview(self) -> None:
+        """M8: 清除预览气泡（识别失败/超时）。"""
+        self.panel.clear_user_preview()
 
     def push_debug(self, stage: str, message: str) -> None:
         self.debug_page.append_stage(stage, message)
@@ -286,8 +298,13 @@ class AppController(QObject):
             self.panel.toggle_panel()
 
     def _on_history_continue(self, sid: str) -> None:
-        self._push_debug("SYSTEM", f"用户选择继续会话 {sid}（后续 M6 接 Checkpoint 恢复）。")
-        self.append_system_bubble(f"📜 恢复会话 {sid}：该功能 M6 阶段接入 CheckpointService 后生效。")
+        self._push_debug("SYSTEM", f"用户选择继续会话 {sid}，已切换为当前会话（记忆将延续）。")
+        try:
+            from src.services.ui_bridge_service import get_ui_bridge
+            get_ui_bridge().set_active_thread(sid)
+            self.append_system_bubble(f"📜 已切换到会话 {sid}，后续对话将延续该会话的上下文与记忆。")
+        except Exception as e:  # noqa: BLE001
+            self.append_system_bubble(f"📜 切换会话 {sid} 失败：{type(e).__name__}: {e}")
 
 
 __all__ = ["AppController"]

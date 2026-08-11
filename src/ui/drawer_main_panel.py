@@ -322,14 +322,26 @@ class DrawerMainPanel(QWidget):
     # 对外 API：聊天便捷方法（参数名与 BubbleListWidget 对齐：timestamp）
     # ------------------------------------------------------------------
 
-    def append_user(self, text: str, timestamp: Optional[str] = None) -> None:
-        self.chat_bubbles.append_user(text, timestamp=timestamp)
+    def append_user(self, text: str, timestamp: Optional[str] = None, is_preview: bool = False) -> None:
+        self.chat_bubbles.append_user(text, timestamp=timestamp, is_preview=is_preview)
 
     def append_ai(self, text: str, timestamp: Optional[str] = None) -> None:
         self.chat_bubbles.append_ai(text, timestamp=timestamp)
 
     def append_system(self, text: str, timestamp: Optional[str] = None) -> None:
         self.chat_bubbles.append_system(text, timestamp=timestamp)
+
+    def update_user_preview(self, text: str) -> None:
+        """M8: 更新用户语音实时预览气泡。"""
+        self.chat_bubbles.update_last_user_preview(text)
+
+    def finalize_user_message(self, text: str) -> None:
+        """M8: 把预览气泡转为正式用户消息。"""
+        self.chat_bubbles.finalize_last_user(text)
+
+    def clear_user_preview(self) -> None:
+        """M8: 清除预览气泡（识别失败/超时）。"""
+        self.chat_bubbles.clear_last_preview()
 
     def clear_chat(self) -> None:
         self.chat_bubbles.clear()

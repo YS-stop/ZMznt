@@ -3,7 +3,7 @@
 工具：
     1. OpenAppTool          —— open_app：按名称打开本机桌面应用（应用目录模糊匹配 + os.startfile 启动）
     2. ListActiveAppsTool   —— list_active_apps：实时枚举当前桌面开着的窗口及进程（轻量屏幕监控）
-    3. RecognizeScreenTool  —— recognize_screen：截图 + Qwen-VL 视觉问答（真·看懂屏幕）
+    3. RecognizeScreenTool  —— recognize_screen：截图 + GLM-4.1V 视觉问答（真·看懂屏幕）
 
 约定：所有异常包装为中文 observation 返回，不向上抛。
 """
@@ -222,7 +222,7 @@ class ListActiveAppsTool(BaseTool):
 
 
 # ============================================================
-# 3. RecognizeScreenTool —— 截图 + Qwen-VL 视觉问答（真·看懂屏幕）
+# 3. RecognizeScreenTool —— 截图 + GLM-4.1V 视觉问答（真·看懂屏幕）
 # ============================================================
 
 class RecognizeScreenArgs(BaseModel):
@@ -262,7 +262,7 @@ def _capture_screen_png(max_width: int = 1280) -> tuple[Optional[Path], str]:
 
 
 class RecognizeScreenTool(BaseTool):
-    """截图当前屏幕并用 Qwen-VL 视觉模型回答关于屏幕内容的问题。"""
+    """截图当前屏幕并用视觉大模型（GLM-4.1V）回答关于屏幕内容的问题。"""
 
     name: ClassVar[str] = "recognize_screen"
     description: ClassVar[str] = (
@@ -273,7 +273,7 @@ class RecognizeScreenTool(BaseTool):
         "  - 「帮我读一下当前窗口里的报错信息」→ question=读出当前窗口里的报错文字\n"
         "  - 「我桌面上哪个应用在放视频」→ question=哪个窗口在播放视频\n"
         "说明：\n"
-        "  - 需要联网调用 Qwen-VL（qwen-vl-max），截图会临时保存到 data/ocr_temp。\n"
+        "  - 需要联网调用视觉模型（默认使用智谱 GLM-4.1V），截图会临时保存到 data/ocr_temp。\n"
         "  - 只看当前主屏一帧画面；如果只要「有哪些窗口开着」不需要看内容，优先用 list_active_apps（更快不联网）。"
     )
     args_schema: ClassVar[type[BaseModel]] = RecognizeScreenArgs
@@ -287,29 +287,42 @@ class RecognizeScreenTool(BaseTool):
                 return f"❌ recognize_screen 截图失败：{err}"
 
             import requests
-            api_key = os.getenv("QWEN_API_KEY", "")
-            base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-            if not api_key:
-                return "❌ recognize_screen：未配置 QWEN_API_KEY，无法调用视觉模型。"
-
-            b64 = base64.b64encode(img_path.read_bytes()).decode()
             q = (question or "").strip() or "描述一下屏幕上显示的内容，列出能看到的主要窗口和应用。"
+            b64 = base64.b64encode(img_path.read_bytes()).decode()
+
+            # 优先使用智谱 GLM-4.1V 视觉模型
+            api_key = os.getenv("GLM_API_KEY", "").strip()
+            base_url = os.getenv("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/").strip()
+            model_name = os.getenv("GLM_VL_MODEL", "glm-4.1v-flash").strip()
+            provider = "智谱 GLM-4.1V"
+
+            if not api_key:
+                # 回退：若未配置 GLM_API_KEY，尝试用通义千问视觉模型作为备选
+                api_key = os.getenv("QWEN_API_KEY", "").strip()
+                base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").strip()
+                model_name = "qwen-vl-max"
+                provider = "通义千问 Qwen-VL（备选）"
+
+            if not api_key:
+                return "❌ recognize_screen：未配置视觉模型 API Key（GLM_API_KEY 或 QWEN_API_KEY 都未配置），无法识别屏幕。"
+
             r = requests.post(
-                f"{base_url}/chat/completions",
+                f"{base_url.rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "model": "qwen-vl-max",
+                    "model": model_name,
                     "messages": [{"role": "user", "content": [
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
                         {"type": "text", "text": q},
                     ]}],
                     "max_tokens": 800,
+                    "temperature": 0.1,
                 },
                 timeout=60,
             )
             ms = (time.perf_counter_ns() - t0) // 1_000_000
             if r.status_code != 200:
-                return f"❌ 视觉模型调用失败（HTTP {r.status_code}）：{r.text[:300]}"
+                return f"❌ 视觉模型调用失败（HTTP {r.status_code}，{provider}）：{r.text[:300]}"
             content = (
                 r.json()
                 .get("choices", [{}])[0]
@@ -319,7 +332,7 @@ class RecognizeScreenTool(BaseTool):
             if not content:
                 return f"⚠️ 视觉模型返回空内容（{ms} ms）。截图保存在：{img_path}"
             return (
-                f"👁️ 屏幕识别结果（{ms} ms，截图 {img_path.name}）：\n{content}"
+                f"👁️ 屏幕识别结果（{provider}，{ms} ms，截图 {img_path.name}）：\n{content}"
             )
         except Exception as e:  # noqa: BLE001
             ms = (time.perf_counter_ns() - t0) // 1_000_000

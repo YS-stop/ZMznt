@@ -88,6 +88,20 @@ CREATE TABLE IF NOT EXISTS langgraph_checkpoints (
 """
 _CHECKPOINTS_INDEX = "CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON langgraph_checkpoints(thread_id)"
 
+# ============ memories 长期记忆表（记住「之前做过什么 / 用户偏好 / 事实」）============
+_MEMORIES_CREATE = """
+CREATE TABLE IF NOT EXISTS memories (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    mem_type     TEXT NOT NULL,                -- fact / preference / task / other
+    content      TEXT NOT NULL,
+    importance   INTEGER DEFAULT 1,            -- 1(低)~5(高)
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    access_count INTEGER DEFAULT 0
+)
+"""
+_MEMORIES_INDEX_IMP = "CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC);"
+_MEMORIES_INDEX_CREATED = "CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at DESC);"
 
 # 所有建表 SQL 单条执行（SQLite 限制：conn.execute 一次只能一条语句）
 _INIT_SQL_STATEMENTS = (
@@ -96,6 +110,9 @@ _INIT_SQL_STATEMENTS = (
     _HISTORY_INDEX,
     _CHECKPOINTS_CREATE,
     _CHECKPOINTS_INDEX,
+    _MEMORIES_CREATE,
+    _MEMORIES_INDEX_IMP,
+    _MEMORIES_INDEX_CREATED,
 )
 
 
@@ -144,6 +161,13 @@ def _ensure_default_settings() -> None:
         "primary_color": "#3B82F6",
         "default_search_path": "桌面",
         "high_risk_confirm_level": "high",
+        # —— 长期记忆（记忆服务开关，默认开）——
+        "memory_enabled": True,
+        # —— M7 持续监听 / 智能尾点检测（设置中心可视化调整，热生效）——
+        "vad_tail_silence_sec": 1.2,   # 尾点静音阈值：连续静音多久判定发言结束
+        "vad_max_record_sec": 30,      # 最长录音时长：超时强制提交
+        "vad_await_speech_sec": 5,     # 唤醒后等待开口超时（随后语音提示 + 3s 宽限退出）
+        "vad_threshold_ratio": 3.0,    # 能量阈值系数（嘈杂环境调高，安静环境调低）
     }
     with transaction() as c:
         for k, v in defaults.items():

@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -218,6 +219,17 @@ def resolve_target_to_url(raw_target: str) -> tuple[str, str]:
 # ============================================================
 
 _CDP_DEFAULT_PORT = 9222
+_CDP_AUTOMATION_PORT = 9223
+
+
+def _get_automation_profile_dir() -> str:
+    """获取自动化浏览器专用用户数据目录（与用户日常浏览器隔离，避免端口冲突）。"""
+    base = os.environ.get("ASSISTANT_DATA_DIR", "")
+    if not base:
+        base = str(Path(_SRC_ROOT) / "data")
+    profile_dir = Path(base) / "browser_automation_profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return str(profile_dir)
 
 
 def _find_chromium_exe() -> tuple[str, str] | None:
@@ -278,6 +290,43 @@ def _find_chromium_exe() -> tuple[str, str] | None:
     return None
 
 
+def _cleanup_stale_automation_chrome() -> None:
+    """启动新自动化 Chrome 前，清理占用同一端口或 Profile 的旧实例。
+
+    场景：上次 App 异常退出时没关掉 Chrome，导致新实例端口冲突或 Profile 锁住。
+    只杀「带调试端口的」Chrome（匹配 --remote-debugging-port 参数），不碰用户日常浏览器。
+    """
+    try:
+        result = subprocess.run(
+            ["wmic", "process", "where", "name='chrome.exe'", "get", "ProcessId,CommandLine"],
+            capture_output=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,  # noqa: S603
+            encoding="utf-8", errors="replace",  # 处理 Windows 命令行编码
+        )
+        for line in (result.stdout or "").splitlines():
+            line = line.strip()
+            if not line or "CommandLine" in line:
+                continue
+            if "--remote-debugging-port" in line:
+                parts = line.split()
+                pid_str = None
+                for p in parts:
+                    if p.isdigit():
+                        pid_str = p
+                        break
+                if pid_str:
+                    try:
+                        subprocess.run(  # noqa: S603
+                            ["taskkill", "/PID", pid_str, "/F"],
+                            capture_output=True, timeout=3,
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                        )
+                    except Exception:
+                        pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _cdp_ready(timeout_s: float = 0.0) -> bool:
     """探测本机 CDP HTTP 端点是否可用（任一常见端口）。"""
     try:
@@ -298,39 +347,100 @@ def _cdp_ready(timeout_s: float = 0.0) -> bool:
         time.sleep(0.3)
 
 
-def _open_url_with_cdp(url: str, wait_s: float = 4.0) -> tuple[bool, bool, str]:
+def _open_url_with_cdp(url: str, wait_s: float = 12.0) -> tuple[bool, bool, str]:
     """尝试以「带远程调试端口」的方式打开 URL。
 
     返回 (是否成功建立CDP, URL是否已被打开, 说明文字)。
-    注意：若浏览器**已经在运行且启动时没带调试端口**，新进程会把 URL 转交旧实例、
-    调试参数被忽略 —— 此时 URL 已经打开（url_opened=True），调用方不要再重复打开，
-    只需如实告知用户（关一次浏览器再让助手打开即可根治）。
+
+    策略：
+    1. 如果已有CDP实例在运行（9222或9223端口），通过CDP HTTP API在该实例中新建标签。
+    2. 否则使用独立 user-data-dir 启动新的 Chrome/Edge 实例（与用户日常浏览器完全隔离），
+       保证 --remote-debugging-port 参数一定生效（不会因为已有浏览器运行而被忽略）。
     """
+    # 1) 已有CDP实例 → 通过CDP API开新标签（不用webbrowser.open，避免打开到非CDP浏览器）
     if _cdp_ready():
-        # 已有带调试端口的浏览器在跑：直接开标签即可，后续可精确管理
+        try:
+            import requests as _req
+            for p in (9222, 9223, _CDP_AUTOMATION_PORT):
+                try:
+                    put_url = f"http://127.0.0.1:{p}/json/new?{url}"
+                    r = _req.put(put_url, timeout=2.0)
+                    if r.ok:
+                        # 激活这个新标签
+                        tid = r.json().get("id", "")
+                        if tid:
+                            try:
+                                _req.get(f"http://127.0.0.1:{p}/json/activate/{tid}", timeout=1.0)
+                            except Exception:
+                                pass
+                        return True, True, "检测到已有带调试端口的浏览器实例，已在该实例中新建标签"
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        # 降级：webbrowser.open
         webbrowser.open(url, new=2, autoraise=True)
         return True, True, "检测到已有带调试端口的浏览器实例，新标签已加入该实例"
+
+    # ---- 启动新实例前：清理残留的旧自动化 Chrome（占着端口或 Profile 锁）----
+    _cleanup_stale_automation_chrome()
 
     found = _find_chromium_exe()
     if not found:
         return False, False, "未找到 Chrome/Edge 可执行文件"
+
     exe, name = found
+    profile_dir = _get_automation_profile_dir()
+    port = _CDP_AUTOMATION_PORT  # 使用独立端口，避免与用户手动开启的CDP冲突
+
     try:
+        # 启动独立实例：专用profile + 调试端口 + 无首次运行向导
+        cmd = [
+            exe,
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile_dir}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--remote-allow-origins=*",
+            "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--new-window",
+            url,
+        ]
         subprocess.Popen(  # noqa: S603
-            [exe, f"--remote-debugging-port={_CDP_DEFAULT_PORT}", url],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            close_fds=True,
         )
     except Exception as e:  # noqa: BLE001
         return False, False, f"启动 {name} 失败：{type(e).__name__}: {e}"
 
-    if _cdp_ready(timeout_s=wait_s):
-        return True, True, f"已以调试端口模式启动 {name}（--remote-debugging-port={_CDP_DEFAULT_PORT}）"
+    # 等待CDP端口就绪
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        try:
+            import requests as _req
+            for p in (9222, 9223, port):
+                r = _req.get(f"http://127.0.0.1:{p}/json/version", timeout=0.8)
+                if r.ok:
+                    return True, True, (
+                        f"已以自动化模式启动 {name}（独立窗口，调试端口{p}），"
+                        f"现在可以对网页进行点击/输入/读取等精确操作"
+                    )
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(0.4)
+
+    # 端口没起来（可能浏览器启动慢或弹了错误对话框），但URL确实已经打开
+    # → subprocess.Popen 成功 + URL 作为命令行参数传入，Chrome 一定会打开该页面
     return (
         False,
-        True,  # URL 已被新进程转交旧实例打开，不能再用 webbrowser 重复打开
-        f"{name} 已打开网页，但调试端口未生效——通常是已有不带调试端口的 {name} 实例在运行，"
-        f"新标签被合并进了旧实例。彻底关闭浏览器后让助手重新打开一次，之后即可精确管理所有标签。",
+        True,
+        f"{name} 已成功启动并打开目标网页（调试端口暂未就绪，不影响浏览）。"
+        f"若需页面内自动化操作（点击/输入等），请稍等几秒后重试相关指令。",
     )
 
 
@@ -367,17 +477,22 @@ class OpenBrowserTool(BaseTool):
     name: ClassVar[str] = "open_browser"
     description: ClassVar[str] = (
         "Tool Name: open_browser\n"
-        "用途：打开系统默认浏览器，访问网站 / 打开百度搜索结果页。\n"
+        "用途：打开浏览器并访问网站，自动以「自动化调试端口模式」启动（启动后可使用browser_*系列工具进行页面内操作）。\n"
+        "⚠️ 注意：此工具仅用于【首次打开网站】，每个任务最多调用1次！打开网站后，所有后续操作"
+        "（点击、输入、搜索、翻页、读内容）必须使用browser_navigate/browser_click/browser_input等browser_*工具，"
+        "禁止反复调用open_browser！\n"
+        "⚠️ 站内搜索（如「在抖音搜XX」「在百度搜XX」）：先用open_browser打开网站首页，"
+        "再用browser_list_elements查看搜索框，然后用browser_input(text=XX, submit=True)在搜索框输入并提交，"
+        "不要把搜索词传给open_browser！\n"
         "调用示例对应的 target 写法：\n"
         "  「打开知乎」→ target=知乎\n"
         "  「打开 GitHub 看我的仓库」→ target=GitHub\n"
         "  「打开 https://example.com/a?x=1」→ target=https://example.com/a?x=1\n"
         "  「打开 example.com」→ target=example.com（自动补 https://）\n"
-        "  「帮我百度搜一下 2026 年奥运会赛程」→ target=2026 年奥运会赛程（自动跳百度搜索）\n"
+        "  「帮我百度搜一下 2026 年奥运会赛程」→ target=2026 年奥运会赛程（此情况才用open_browser直接打开百度搜索结果页）\n"
         "常见快捷站点：百度、必应、知乎、B站、微博、豆瓣、小红书、抖音、淘宝、天猫、京东、QQ邮箱、163邮箱、"
         "Gmail、飞书、钉钉、企业微信、语雀、印象笔记、Notion、石墨文档、腾讯文档、GitHub、Gitee、掘金、CSDN、"
-        "爱奇艺、腾讯视频、优酷、网易云音乐、QQ音乐、阿里云盘、百度网盘 ……（完整列表共 100+ 个）\n"
-        "注意：不会读取浏览器页面内容，只负责『打开』。要获取网页资讯请使用后续的 search_news 工具。"
+        "爱奇艺、腾讯视频、优酷、网易云音乐、QQ音乐、阿里云盘、百度网盘 ……（完整列表共 100+ 个）"
     )
     args_schema: type[BaseModel] = OpenBrowserArgs
     return_direct: ClassVar[bool] = False
@@ -391,21 +506,15 @@ class OpenBrowserTool(BaseTool):
             # 让后续 close_browser_tab 能精确管理任意标签（含后台标签、批量关闭）。
             cdp_ok, url_opened, cdp_note = _open_url_with_cdp(url)
             elapsed_ms = (time.perf_counter_ns() - t0) // 1_000_000
-            if cdp_ok:
-                return (
-                    f"✅ open_browser 成功（调试端口模式，{elapsed_ms} ms）\n"
-                    f"  解析方式：{method}\n"
-                    f"  最终 URL：{url}\n"
-                    f"  说明：{cdp_note}\n"
-                    f"  该浏览器实例的所有标签页现在都可以被精确关闭/批量管理。"
-                )
             if url_opened:
-                # URL 已被打开（并入旧实例），只是没有调试端口——不能重复打开
+                # ✅ 核心目标已达成：浏览器已启动、目标URL已打开
+                prefix = "✅" if cdp_ok else "✅"
+                cdp_status = f"（自动化端口已就绪，可进行页面内操作）" if cdp_ok else "（自动化端口暂未就绪，纯浏览不受影响）"
                 return (
-                    f"✅ open_browser 成功（普通模式，{elapsed_ms} ms）\n"
+                    f"{prefix} open_browser 成功（{elapsed_ms} ms）{cdp_status}\n"
                     f"  解析方式：{method}\n"
                     f"  最终 URL：{url}\n"
-                    f"  提示：{cdp_note}"
+                    f"  说明：{cdp_note}"
                 )
 
             # 回退：系统默认方式打开

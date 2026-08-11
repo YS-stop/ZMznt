@@ -49,6 +49,7 @@ def _build_all() -> dict[str, "BaseTool"]:
         ListActiveAppsTool,
         RecognizeScreenTool,
     )
+    from src.tools.web_automation_tools import get_web_automation_tools  # M9 网页自动化
 
     instances: list[BaseTool] = [
         CreateFileTool(),
@@ -69,6 +70,8 @@ def _build_all() -> dict[str, "BaseTool"]:
         OpenAppTool(),
         ListActiveAppsTool(),
         RecognizeScreenTool(),
+        # —— M9 网页自动化（10个工具：导航/滚动/点击/输入/提取/标签管理）——
+        *get_web_automation_tools(),
         # —— 后续阶段新增的工具在这里 append ——
     ]
     out: dict[str, BaseTool] = {}

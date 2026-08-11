@@ -37,6 +37,90 @@ if str(_PROJECT_ROOT) not in sys.path:
 from src.ui.floating_ball_widget import FloatingBallState  # noqa: E402
 
 
+# ------------------------------------------------------------------
+# LLM 回复清理：过滤 Markdown / Emoji / 符号噪音，保留干净自然语言
+# ------------------------------------------------------------------
+
+# 预编译正则（启动时编译一次，每次调用零开销）
+_MD_BOLD = re.compile(r'\*\*(.+?)\*\*')          # **文字** → 文字
+_MD_ITALIC = re.compile(r'(?<!\*)\*(?!\*)(.+?)\*(?!\*)')  # *文字* → 文字（不与 bold 冲突）
+_MD_UNDERLINE = re.compile(r'__(.+?)__')         # __文字__ → 文字
+_MD_HEADING = re.compile(r'^#{1,6}\s+', re.MULTILINE)  # ### 标题 → 标题
+_MD_CODE_BLOCK = re.compile(r'```[\s\S]*?```')    # ```代码块``` → 删除
+_MD_INLINE_CODE = re.compile(r'`([^`]+)`')        # `代码` → 代码（去反引号）
+_TOOL_REF = re.compile(r'\[([a-zA-Z_][\w]*)\]')   # [browser_click] → 去括号
+_ARROW = re.compile(r'[→←↑↓↔⇒⇐⇑⇓➤➜▶◀]')       # 箭头符号
+_EMOJI_PATTERN = re.compile(
+    '['
+    '\U00002700-\U000027BF'  # Dingbats (✅✖️❌等)
+    '\U0001F300-\U0001F9FF'  # Emoji
+    '\U00002600-\U000026FF'  # Misc symbols
+    '\U0001FA00-\U0001FA6F'  # Symbols extended
+    '\U0001FA70-\U0001FAFF'  # Symbols extended-A
+    '\u200d'                  # Zero-width joiner
+    '\ufe0f'                  # Variation selector
+    ']+',
+    flags=re.UNICODE,
+)
+_EXCESSIVE_NEWLINES = re.compile(r'\n{3,}')        # 3+ 连续换行 → 最多2个
+_LIST_MARKER = re.compile(r'^(\s*)[-*•]\s+', re.MULTILINE)  # 列表项标记
+_ORPHAN_MARKERS = re.compile(r'[*_`]{2,}')         # 孤立的 ** __ `` 标记
+
+
+def clean_response(raw: str, *, for_tts: bool = False) -> str:
+    """清理 LLM 回复中的格式噪音，返回适合展示/播报的自然语言文本。
+
+    Args:
+        raw: LLM 原始回复（可能含 Markdown、Emoji、工具引用等）
+        for_tts: True=为 TTS 深度清理（删代码块/工具名/箭头），
+                False=为 UI 展示轻度清理
+
+    Returns:
+        干净的纯文本
+    """
+    text = raw
+
+    # 1. 代码块（TTS 和 UI 都不需要）
+    text = _MD_CODE_BLOCK.sub(' ', text)
+
+    # 2. Markdown 粗体/斜体/下划线 → 纯文本
+    text = _MD_BOLD.sub(r'\1', text)
+    text = _MD_ITALIC.sub(r'\1', text)
+    text = _MD_UNDERLINE.sub(r'\1', text)
+
+    # 3. 标题标记
+    text = _MD_HEADING.sub('', text)
+
+    # 4. 内联代码去反引号
+    text = _MD_INLINE_CODE.sub(r'\1', text)
+
+    # 5. 工具引用 [browser_click] 等
+    if for_tts:
+        text = _TOOL_REF.sub('', text)     # TTS: 直接删除工具名
+    else:
+        text = _TOOL_REF.sub(r'\1', text)  # UI: 去括号保留名称
+
+    # 6. 箭头符号
+    text = _ARROW.sub('，' if for_tts else '→', text)
+
+    # 7. Emoji 全部移除
+    text = _EMOJI_PATTERN.sub('', text)
+
+    # 8. 列表标记标准化
+    text = _LIST_MARKER.sub(r'\1', text)
+
+    # 9. 兜底：残留孤立 Markdown 标记（LLM 不配对的 ** * __ `）
+    text = _ORPHAN_MARKERS.sub('', text)
+
+    # 10. 多余空白
+    text = _EXCESSIVE_NEWLINES.sub('\n\n', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n[ \t]+', '\n', text)
+    text = text.strip()
+
+    return text
+
+
 @dataclass
 class AgentTaskRequest:
     text: str
@@ -103,11 +187,23 @@ class _AgentWorker(QObject):
                     pass
 
             try:
+                # 注入长期记忆：把高重要性 + 最近记忆拼进「运行时系统提示」
+                runtime_system = agent.system_prompt
+                try:
+                    from src.services.memory_service import get_memory_service
+                    mem_text = get_memory_service().build_context_prompt()
+                    if mem_text:
+                        runtime_system = agent.system_prompt + (
+                            "\n\n【长期记忆 · 之前做过/用户偏好/重要事实】\n" + mem_text
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
                 # stream_events 是「回调式」API：传入 stream_cb 接收事件，返回值即最终回答
                 final_txt = agent.stream_events(
                     req.text,
                     thread_id=req.thread_id,
                     stream_cb=_on_stream,
+                    extra_state_fields={"runtime_system": runtime_system},
                 ) or ""
                 # 兜底：没有拿到最终回答就从图的最后状态里取
                 if not final_txt.strip():
@@ -123,6 +219,19 @@ class _AgentWorker(QObject):
             ms = (time.perf_counter_ns() - t0) // 1_000_000
             res = AgentTaskResult(ok=True, final_answer=final_txt, stages=[], ms=ms)
             self.stage.emit("AGENT", f"Agent 完成，耗时 {ms} ms。")
+            # 后台提炼长期记忆（不阻塞 TTS / UI 渲染）
+            try:
+                from src.services.memory_service import get_memory_service
+                mem = get_memory_service()
+                if mem.is_enabled():
+                    import threading as _th
+                    _th.Thread(
+                        target=mem.record_turn,
+                        args=(req.text, final_txt, req.thread_id),
+                        daemon=True,
+                    ).start()
+            except Exception:  # noqa: BLE001
+                pass
             self.final.emit(final_txt, res)
         except Exception as outer:  # noqa: BLE001
             ms = (time.perf_counter_ns() - t0) // 1_000_000
@@ -226,6 +335,11 @@ class UIBridgeService(QObject):
     sig_set_ball_state = Signal(int)
     sig_open_settings = Signal()
 
+    # --- M8: 实时预览相关信号 ---
+    sig_update_user_preview = Signal(str)    # 预览文本更新
+    sig_finalize_user_message = Signal(str)  # 预览转为正式消息
+    sig_clear_user_preview = Signal()        # 清除预览
+
     # --- 高危确认（跨线程阻塞式） ---
     sig_request_highrisk_confirm = Signal(list, str)   # ops_list, required_keyword；UI 返回 (bool, keyword)
 
@@ -242,6 +356,9 @@ class UIBridgeService(QObject):
         self._pending_voice_duration: float = 5.0
         self._wake_svc = None                # WakeWordService | None
 
+        # —— M8: 预览状态跟踪 ——
+        self._preview_active: bool = False   # 当前是否有活跃的预览气泡
+
         # —— 任务打断确认状态机 ——
         self._task_busy: bool = False              # 有 Agent 任务正在执行
         self._current_task_text: str = ""          # 当前任务原文（用于询问时复述）
@@ -250,6 +367,9 @@ class UIBridgeService(QObject):
         self._switch_ask_id: int = 0               # 每次询问 +1，防超时回调串台
         self._awaiting_switch_answer: bool = False # 正在等「换不换任务」的回答
         self._expect_answer_after_tts: bool = False    # TTS 询问播完后开启免唤醒词等答案窗口
+
+        # —— 记忆/会话：固定主会话 thread，保证跨轮/跨重启记忆连续 ——
+        self._active_thread_id: str = "main"
 
     # ------------------------------------------------------------------
     # 绑定 UI 层
@@ -276,9 +396,23 @@ class UIBridgeService(QObject):
         self.sig_push_debug.connect(lambda stage, msg: controller.push_debug(stage, msg))
         self.sig_set_ball_state.connect(lambda s: controller.set_ball_state(FloatingBallState(int(s))))
 
+        # M8: 实时预览信号
+        self.sig_update_user_preview.connect(lambda t: controller.update_user_preview(t))
+        self.sig_finalize_user_message.connect(lambda t: controller.finalize_user_message(t))
+        self.sig_clear_user_preview.connect(lambda: controller.clear_user_preview())
+
         # 初始状态
         self._set_input_busy(False)
-        self.sig_push_debug.emit("SYSTEM", "✅ UIBridgeService 已挂载：文本 / 语音 / TTS / Agent 链路就绪。")
+        self.sig_push_debug.emit("SYSTEM", "✅ UIBridgeService 已挂载：文本 / 语音 / TTS / Agent 链路就绪（M8进阶持续监听）。")
+
+        # 加载上次激活的会话 thread（记忆连续）+ 长期记忆开关
+        self._load_active_thread()
+        try:
+            from src.services.memory_service import get_memory_service
+            from src.services.sqlite_db import get_setting
+            get_memory_service().set_enabled(bool(get_setting("memory_enabled", True)))
+        except Exception:  # noqa: BLE001
+            pass
 
         # 唤醒词常驻监听（settings.wake_word_enabled=false 可关闭）
         self.sig_wake_command.connect(self._on_wake_command)
@@ -306,6 +440,38 @@ class UIBridgeService(QObject):
     # ------------------------------------------------------------------
     # 对外：提交文本 → Agent
     # ------------------------------------------------------------------
+
+    # —— 会话/记忆管理（固定主会话，保证记忆连续；支持切换/新建）——
+    def _load_active_thread(self) -> None:
+        try:
+            from src.services.sqlite_db import get_setting
+            tid = get_setting("active_thread_id", "main")
+            self._active_thread_id = str(tid or "main")
+        except Exception:  # noqa: BLE001
+            self._active_thread_id = "main"
+
+    def set_active_thread(self, thread_id: str) -> None:
+        """切换当前激活会话（history_tab「继续会话」时调用）；记忆随之延续。"""
+        tid = (thread_id or "").strip()
+        if not tid:
+            return
+        self._active_thread_id = tid
+        try:
+            from src.services.sqlite_db import set_setting
+            set_setting("active_thread_id", tid)
+        except Exception:  # noqa: BLE001
+            pass
+        self.sig_push_debug.emit("SYSTEM", f"📌 已切换到会话：{tid}（后续对话将延续该会话记忆）")
+
+    def new_conversation(self) -> str:
+        """新建一个独立会话（清空当前对话流，长期记忆仍保留）。"""
+        tid = "th_" + uuid.uuid4().hex[:10]
+        self.set_active_thread(tid)
+        self.sig_push_debug.emit("SYSTEM", f"🆕 已新建会话：{tid}")
+        return tid
+
+    def get_active_thread(self) -> str:
+        return self._active_thread_id
 
     def submit_text(self, text: str, thread_id: Optional[str] = None) -> None:
         content = (text or "").strip()
@@ -337,7 +503,7 @@ class UIBridgeService(QObject):
             tts_stop_playback()
         except Exception:  # noqa: BLE001
             pass
-        tid = thread_id or ("th_" + uuid.uuid4().hex[:8])
+        tid = thread_id or self._active_thread_id
         self.sig_set_ball_state.emit(int(FloatingBallState.THINKING))
         self.sig_push_debug.emit("AGENT", f"收到文本指令（thread_id={tid}，gen={gen}）")
 
@@ -388,6 +554,12 @@ class UIBridgeService(QObject):
 
     def on_settings_saved(self, key: str, val: object) -> None:
         self.sig_push_debug.emit("SYSTEM", f"设置保存：{key}={val}")
+        # 监听参数热生效（无需重启唤醒线程）
+        if str(key).startswith("vad_") and self._wake_svc is not None:
+            try:
+                self._wake_svc.reload_config()
+            except Exception:  # noqa: BLE001
+                pass
 
     def on_app_quit(self) -> None:
         self.sig_push_debug.emit("SYSTEM", "收到 app 退出信号。桥接层清理线程…")
@@ -418,17 +590,19 @@ class UIBridgeService(QObject):
         self._current_task_text = ""
         # 回到 IDLE
         self.sig_set_ball_state.emit(int(FloatingBallState.IDLE))
-        # 气泡
-        final = (answer or "").strip()
-        if not final:
-            final = "(Agent 未返回有效答案，可能是工具链还在执行或模型超时。)"
+        # 气泡（清理 Markdown/Emoji 噪音后再展示）
+        final_raw = (answer or "").strip()
+        if not final_raw:
+            final_raw = "(Agent 未返回有效答案，可能是工具链还在执行或模型超时。)"
             self.sig_push_debug.emit("WARN", "Agent 最终答案为空，已用占位气泡提示。")
-        self.sig_append_ai_bubble.emit(final)
-        self.sig_push_debug.emit("AGENT", f"最终回答（{len(final)} 字符，{result.ms} ms）：{final[:220]}")
+        final_display = clean_response(final_raw, for_tts=False)
+        self.sig_append_ai_bubble.emit(final_display)
+        self.sig_push_debug.emit("AGENT", f"最终回答（{len(final_raw)}字符→清理后{len(final_display)}字符，{result.ms} ms）：{final_raw[:220]}")
 
-        # TTS
+        # TTS（深度清理：去掉所有格式符号、代码块、工具引用）
         if self._current_tts_enabled:
-            self._run_tts(final, self._current_tts_voice, self._current_tts_speed)
+            tts_text = clean_response(final_raw, for_tts=True)
+            self._run_tts(tts_text, self._current_tts_voice, self._current_tts_speed)
         else:
             # 不播报 → 立即恢复唤醒监听
             self._wake_resume()
@@ -465,10 +639,55 @@ class UIBridgeService(QObject):
         svc = WakeWordService(
             wake_words=[word],
             on_wake=lambda cmd: self.sig_wake_command.emit(cmd),
-            on_event=lambda stage, msg: self.sig_push_debug.emit(stage, msg),
+            on_event=lambda stage, msg: self._on_wake_event(stage, msg),
         )
         svc.start()
         self._wake_svc = svc
+
+    def _on_wake_event(self, stage: str, message: str) -> None:
+        """唤醒/持续监听事件分发（音频线程 → Qt 信号，队列连接线程安全）。"""
+        self.sig_push_debug.emit(stage, message)
+        if stage == "LISTEN_PROMPT":
+            # 唤醒后 5s 未开口：语音提示「在呢，请说」
+            if self._current_tts_enabled:
+                self._run_tts("在呢，请说。", self._current_tts_voice, self._current_tts_speed)
+        elif stage == "LISTEN_TIMEOUT":
+            self.sig_append_system_bubble.emit("⏱️ 没有听到声音，已退出监听。")
+            self.sig_set_ball_state.emit(int(FloatingBallState.IDLE))
+            # M8: 超时清除预览
+            if self._preview_active:
+                self.sig_clear_user_preview.emit()
+                self._preview_active = False
+        elif stage == "LISTEN_SUBMIT":
+            # 尾点触发、缓冲已提交 ASR：切换思考态，过渡无割裂
+            self.sig_set_ball_state.emit(int(FloatingBallState.THINKING))
+        elif stage == "LISTEN_PREVIEW":
+            # M8: 实时预览文本更新（update_user_preview内部已处理首次创建预览气泡的逻辑）
+            self._preview_active = True
+            self.sig_update_user_preview.emit(message)
+        elif stage == "LISTEN_PREVIEW_CLEAR":
+            # M8: 清除预览（识别失败/丢弃）
+            if self._preview_active:
+                self.sig_clear_user_preview.emit()
+                self._preview_active = False
+        elif stage == "LISTEN_FINISH_WORD":
+            # M8: 收尾词命中日志已经在sig_push_debug打了，这里可以加个轻反馈
+            pass
+        elif stage == "LISTEN_APPEND_MERGE":
+            # M8: 追加合并已经在日志显示，不需要额外UI
+            pass
+
+    def _ball_state_after_tts(self) -> None:
+        """TTS 播报结束后的球态：若仍在持续监听（如刚播完「在呢，请说」）→ 回 LISTENING。"""
+        svc = self._wake_svc
+        listening = False
+        if svc is not None:
+            try:
+                listening = svc.is_in_command_mode()
+            except Exception:  # noqa: BLE001
+                listening = False
+        state = FloatingBallState.LISTENING if listening else FloatingBallState.IDLE
+        self.sig_set_ball_state.emit(int(state))
 
     def _wake_pause(self) -> None:
         svc = self._wake_svc
@@ -553,12 +772,12 @@ class UIBridgeService(QObject):
         self._open_answer_window()
 
     def _open_answer_window(self) -> None:
-        """开启 10 秒免唤醒词等答案窗口（用户的回答直接说「确认/继续」即可）。"""
+        """开启免唤醒词等答案持续监听（10s 内直接说「确认/继续」，无需唤醒词）。"""
         svc = self._wake_svc
         if svc is not None:
             try:
                 svc.expect_command(10.0)
-                self.sig_push_debug.emit("WAKE", "已开启等答案窗口（10s 内直接说「确认/继续」，无需唤醒词）。")
+                self.sig_push_debug.emit("WAKE", "已开启等答案监听（10s 内直接说「确认/继续」，无需唤醒词）。")
             except Exception:  # noqa: BLE001
                 pass
 
@@ -574,9 +793,18 @@ class UIBridgeService(QObject):
         if not cmd:
             # 只喊了「小助手」→ 提示用户在听（服务侧 8s 窗口内下一句话会自动再来一次本回调）
             self.sig_set_ball_state.emit(int(FloatingBallState.LISTENING))
+            # 如果有预览（比如之前的残留），先清除
+            if self._preview_active:
+                self.sig_clear_user_preview.emit()
+                self._preview_active = False
             self.sig_append_system_bubble.emit("🎙️ 我在，请说指令…")
             return
-        self.sig_append_user_bubble.emit(f"🎙️ {cmd}")
+        # M8: 如果有活跃预览，将其转为正式消息（不重复append）
+        if self._preview_active:
+            self.sig_finalize_user_message.emit(f"🎙️ {cmd}")
+            self._preview_active = False
+        else:
+            self.sig_append_user_bubble.emit(f"🎙️ {cmd}")
         self.submit_text(cmd)
 
     def _run_tts(self, text: str, voice: str, speed: float) -> None:
@@ -592,8 +820,9 @@ class UIBridgeService(QObject):
         worker.stage.connect(lambda stage, msg: self.sig_push_debug.emit(stage, msg))
         worker.finished.connect(lambda note: self.sig_push_debug.emit("TTS", f"播报结束：{note}"))
         worker.finished.connect(lambda _n, th=thread, w=worker: _cleanup_thread(th, w))
-        # 播报完回 IDLE + 恢复唤醒监听（此时喇叭已安静，不会自触发）
-        worker.finished.connect(lambda _n, self_ref=self: self_ref.sig_set_ball_state.emit(int(FloatingBallState.IDLE)))
+        # 播报完回 IDLE/恢复唤醒监听（此时喇叭已安静，不会自触发）；
+        # 若仍处于持续监听（如刚播完开口提示）→ 回 LISTENING 而非 IDLE
+        worker.finished.connect(lambda _n: self._ball_state_after_tts())
         worker.finished.connect(lambda _n: self._wake_resume())
         # 若这次播报是「换任务确认询问」→ 播完开启免唤醒词等答案窗口
         worker.finished.connect(lambda _n: self._maybe_open_answer_window())

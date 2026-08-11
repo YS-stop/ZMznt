@@ -299,6 +299,7 @@ class BubbleListWidget(QListWidget):
         bl.append_user("给我创建个文件")
         bl.append_ai("好，已经帮你在桌面创建了 hello.txt")
         bl.append_system("⚠️ 高危操作：需要二次确认 DELETE")
+        bl.update_last_user_preview("正在说话...")  # M8: 实时预览更新
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -316,11 +317,14 @@ class BubbleListWidget(QListWidget):
             "QScrollBar::handle:vertical:hover{background:#A8C4A2;}"
             "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
         )
+        self._last_user_item: Optional[QListWidgetItem] = None
+        self._last_user_label: Optional[QLabel] = None
+        self._is_preview_mode: bool = False
 
     # ---------- 对外 API ----------
 
-    def append_user(self, text: str, timestamp: Optional[str] = None) -> None:
-        self._append(text, role="user", ts=timestamp)
+    def append_user(self, text: str, timestamp: Optional[str] = None, is_preview: bool = False) -> None:
+        self._append(text, role="user", ts=timestamp, is_preview=is_preview)
 
     def append_ai(self, text: str, timestamp: Optional[str] = None) -> None:
         self._append(text, role="ai", ts=timestamp)
@@ -328,9 +332,66 @@ class BubbleListWidget(QListWidget):
     def append_system(self, text: str, timestamp: Optional[str] = None) -> None:
         self._append(text, role="system", ts=timestamp)
 
+    def update_last_user_preview(self, text: str) -> None:
+        """M8: 更新最后一条用户气泡（实时预览用，带...提示和浅色样式）。"""
+        if self._last_user_item is None or self._last_user_label is None:
+            self.append_user(text, is_preview=True)
+            return
+        preview_text = (text or "").strip()
+        if not preview_text:
+            preview_text = "🎙️ 正在听..."
+        else:
+            preview_text = preview_text + " ▍"  # 光标效果
+        self._last_user_label.setText(preview_text)
+        if self._is_preview_mode:
+            self._last_user_label.setStyleSheet(
+                "background:#88B99A;color:rgba(255,255,255,0.9);border-radius:12px;"
+                "border-top-right-radius:3px;padding:8px 12px;"
+                "font-size:13px;line-height:1.6;font-style:italic;"
+            )
+        self._refresh_item_size(self._last_user_item, self._last_user_label)
+        self.scrollToBottom()
+
+    def finalize_last_user(self, text: str) -> None:
+        """M8: 把预览气泡转为正式用户气泡（提交时调用）。"""
+        final_text = (text or "").strip()
+        if self._last_user_item is None or self._last_user_label is None:
+            self.append_user(final_text)
+            return
+        self._last_user_label.setText(final_text)
+        self._last_user_label.setStyleSheet(
+            "background:#5FA87C;color:white;border-radius:12px;"
+            "border-top-right-radius:3px;padding:8px 12px;"
+            "font-size:13px;line-height:1.6;"
+        )
+        self._is_preview_mode = False
+        self._refresh_item_size(self._last_user_item, self._last_user_label)
+        self._last_user_item = None
+        self._last_user_label = None
+        self.scrollToBottom()
+
+    def clear_last_preview(self) -> None:
+        """M8: 清除预览气泡（识别失败/超时丢弃时调用）。"""
+        if self._last_user_item is not None:
+            row = self.row(self._last_user_item)
+            if row >= 0:
+                self.takeItem(row)
+        self._last_user_item = None
+        self._last_user_label = None
+        self._is_preview_mode = False
+
     # ---------- 内部 ----------
 
-    def _append(self, text: str, role: str, ts: Optional[str]) -> None:
+    def _refresh_item_size(self, item: QListWidgetItem, label: QLabel) -> None:
+        """重新计算 item 高度（文本变化后调用，避免气泡被截断）。"""
+        label.adjustSize()
+        wrap = label.parentWidget()
+        if wrap is not None:
+            wrap.adjustSize()
+            hint_h = max(44, wrap.sizeHint().height())
+            item.setSizeHint(QSize(self.viewport().width() - 20, hint_h + 8))
+
+    def _append(self, text: str, role: str, ts: Optional[str], is_preview: bool = False) -> None:
         content = (text or "").strip()
         if not content:
             return
@@ -338,22 +399,30 @@ class BubbleListWidget(QListWidget):
         item = QListWidgetItem(self)
         item.setFlags(Qt.NoItemFlags)
 
-        bubble = self._make_bubble(content, role, ts)
+        bubble, label = self._make_bubble(content, role, ts, is_preview=is_preview)
         bubble.adjustSize()
         # 根据 bubble 内容估算高度
         hint_h = max(44, bubble.sizeHint().height())
         item.setSizeHint(QSize(self.viewport().width() - 20, hint_h + 8))
         self.addItem(item)
         self.setItemWidget(item, bubble)
+
+        # M8: 跟踪最后一条用户消息（用于预览更新）
+        if role == "user":
+            self._last_user_item = item
+            self._last_user_label = label
+            self._is_preview_mode = is_preview
+
         # 滚动到底
         self.scrollToBottom()
 
-    def _make_bubble(self, content: str, role: str, ts: Optional[str]) -> QWidget:
+    def _make_bubble(self, content: str, role: str, ts: Optional[str], is_preview: bool = False) -> tuple[QWidget, QLabel]:
         wrap = QWidget(self)
         wrap.setStyleSheet("background:transparent;")
         root_layout = QVBoxLayout(wrap)
         root_layout.setContentsMargins(6, 2, 6, 2)
         root_layout.setSpacing(2)
+        content_label: Optional[QLabel] = None
 
         # 时间戳
         if ts:
@@ -373,37 +442,46 @@ class BubbleListWidget(QListWidget):
             chip.setAlignment(Qt.AlignCenter)
             chip.setMaximumWidth(int(self.viewport().width() * 0.85))
             root_layout.addWidget(chip, 0, Qt.AlignHCenter)
-            return wrap
+            content_label = chip
+        else:
+            is_user = role == "user"
+            bubble_wrapper = QHBoxLayout()
+            bubble_wrapper.setContentsMargins(0, 0, 0, 0)
+            if is_user:
+                bubble_wrapper.addStretch(1)
 
-        is_user = role == "user"
-        bubble_wrapper = QHBoxLayout()
-        bubble_wrapper.setContentsMargins(0, 0, 0, 0)
-        if is_user:
-            bubble_wrapper.addStretch(1)
+            bubble_lbl = QLabel(content, wrap)
+            bubble_lbl.setWordWrap(True)
+            bubble_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            if is_user:
+                if is_preview:
+                    bubble_lbl.setStyleSheet(
+                        "background:#88B99A;color:rgba(255,255,255,0.9);border-radius:12px;"
+                        "border-top-right-radius:3px;padding:8px 12px;"
+                        "font-size:13px;line-height:1.6;font-style:italic;"
+                    )
+                else:
+                    bubble_lbl.setStyleSheet(
+                        "background:#5FA87C;color:white;border-radius:12px;"
+                        "border-top-right-radius:3px;padding:8px 12px;"
+                        "font-size:13px;line-height:1.6;"
+                    )
+            else:  # ai
+                bubble_lbl.setStyleSheet(
+                    "background:#F1F7EE;color:#26402E;border:1px solid #DAE9D2;"
+                    "border-radius:12px;border-top-left-radius:3px;padding:8px 12px;"
+                    "font-size:13px;line-height:1.6;"
+                )
+            max_w = int(self.viewport().width() * 0.85)
+            bubble_lbl.setMaximumWidth(max_w)
+            bubble_lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+            bubble_wrapper.addWidget(bubble_lbl, 0, Qt.AlignTop)
+            if not is_user:
+                bubble_wrapper.addStretch(1)
+            root_layout.addLayout(bubble_wrapper)
+            content_label = bubble_lbl
 
-        bubble_lbl = QLabel(content, wrap)
-        bubble_lbl.setWordWrap(True)
-        bubble_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        if is_user:
-            bubble_lbl.setStyleSheet(
-                "background:#5FA87C;color:white;border-radius:12px;"
-                "border-top-right-radius:3px;padding:8px 12px;"
-                "font-size:13px;line-height:1.6;"
-            )
-        else:  # ai
-            bubble_lbl.setStyleSheet(
-                "background:#F1F7EE;color:#26402E;border:1px solid #DAE9D2;"
-                "border-radius:12px;border-top-left-radius:3px;padding:8px 12px;"
-                "font-size:13px;line-height:1.6;"
-            )
-        max_w = int(self.viewport().width() * 0.85)
-        bubble_lbl.setMaximumWidth(max_w)
-        bubble_lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
-        bubble_wrapper.addWidget(bubble_lbl, 0, Qt.AlignTop)
-        if not is_user:
-            bubble_wrapper.addStretch(1)
-        root_layout.addLayout(bubble_wrapper)
-        return wrap
+        return wrap, content_label
 
 
 # ============================================================
